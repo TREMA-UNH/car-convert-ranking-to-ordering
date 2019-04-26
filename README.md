@@ -4,7 +4,7 @@
 ```
 git clone https://github.com/jramsdell/trec_run_parse.git
 cd trec_run_parse
-python3 setup.py --user 
+python3 setup.py install --user 
 ```
 Script is in rparsing/cbor_parsing.py
 
