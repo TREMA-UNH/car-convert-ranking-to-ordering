@@ -1,12 +1,10 @@
 
 ## Installation
+1. Clone this repository
+2. Make sure you are using python 3.5 or later.
+3. `python3 setup.py install`  optionally use `--user` for a user-specific installation
 
-```
-git clone https://github.com/jramsdell/trec_run_parse.git
-cd trec_run_parse
-python3 setup.py install --user 
-```
-Script is in rparsing/cbor_parsing.py
+The conversion script is  `rparsing/cbor_parsing.py`
 
 
 ## Usage
