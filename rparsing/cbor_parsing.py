@@ -1,4 +1,5 @@
 #!/usr/bin/python3
+import itertools
 from typing import List, Any, Dict, Tuple
 import argparse
 import os
@@ -152,6 +153,12 @@ class Page(Jsonable):
             f.write(self.to_json())
 
 
+class Submission(Jsonable):
+    """ A submission for one system/run """
+    submission_data = [] # type:[Page]
+
+    def __init__(self, submission_data):
+        self.submission_data = [json.loads(i.tojson()) for i in submission_data]
 
 
 
@@ -225,7 +232,7 @@ class RunManager(object):
 
 
     def parse_run_line(self, run_line: 'RunLine'):
-        e = run_line.qid.split("/")
+        e = run_line.qid.split("/")  # todo: this gives incorrect results , see issue #6
 
         # Skip queries that are not top-level!
         if len(e) != 2:
@@ -249,7 +256,7 @@ class RunManager(object):
         page = self.pages[key]
 
         # Add paragraph and register this for later (when we retrieve text / links)
-        paragraph = Paragraph(paraId=run_line.doc_id)
+        paragraph = Paragraph(paraId=run_line.doc_id)  # create empty paragraph, contents will be loaded later.
         page.add_paragraph(paragraph)
         self.register_paragraph(paragraph)
 
@@ -259,7 +266,7 @@ class RunManager(object):
             rank=run_line.rank,
             rank_score=run_line.score,
             # section_path=self.oreader.page_title_map[run_line.qid]
-            section_path=run_line.qid
+            section_path=run_line.qid      # todo fix, see issue #6
         )
         page.paragraph_origins.append(origin)
 
@@ -407,8 +414,20 @@ def run_parse():
     run_manager = RunManager(run_loc, outlines, nlines=np)
     run_manager.retrieve_text(cbor_loc)
 
-    for (k,v) in sorted(run_manager.pages.items(), key=lambda x: x[0]):
-        v.write_self()
+
+    def keyfunc(p):
+        return p.run_id
+
+    if not os.path.exists("jsons/"):
+        os.mkdir("jsons/")
+
+    for run_id, pages in itertools.groupby(sorted(run_manager.pages.items(), key=keyfunc), key=keyfunc):
+        out_name = "jsons/" + run_id + ".json"
+        with open(out_name, "w") as f:
+            f.write(Submission(pages).to_json())
+
+    # for (k,v) in sorted(run_manager.pages.items(), key=lambda x: x[0]):
+    #     v.write_self()
 
 
 if __name__ == '__main__':
