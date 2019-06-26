@@ -151,7 +151,7 @@ class Page(Jsonable):
 
         with open(out_name, "w") as f:
             f.write(self.to_json())
-                                                    f
+
 
 class Submission(Jsonable):
     """ A submission for one system/run """
