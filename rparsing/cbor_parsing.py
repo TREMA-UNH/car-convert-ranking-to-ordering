@@ -124,12 +124,12 @@ class Page(Jsonable):
         self.run_id = ""
         self.title = ""
         self.squid = ""
-        self.paragraphs = []
+        self.paragraphs = None # []
         self.paragraph_origins = []
 
 
     def to_json(self):
-        self.paragraphs = [json.loads(i.to_json()) for i in self.paragraphs]
+        self.paragraphs = [json.loads(i.to_json()) for i in self.paragraphs] if self.paragraphs is not None else None
         self.query_facets = [json.loads(i.to_json()) for i in self.query_facets]
         self.paragraph_origins = [json.loads(i.to_json()) for i in self.paragraph_origins]
         delattr(self, "pids")
@@ -412,7 +412,7 @@ def run_parse():
     np = int(parsed["n"])
     cbor_loc = parsed["paragraph_cbor"]
     run_manager = RunManager(run_loc, outlines, nlines=np)
-    run_manager.retrieve_text(cbor_loc)
+    # run_manager.retrieve_text(cbor_loc)
 
 
     def keyfunc(p):
@@ -421,7 +421,7 @@ def run_parse():
     if not os.path.exists("jsons/"):
         os.mkdir("jsons/")
 
-    for run_id, pages in itertools.groupby(sorted(run_manager.pages.items(), key=keyfunc), key=keyfunc):
+    for run_id, pages in itertools.groupby(sorted(run_manager.pages.values(), key=keyfunc), key=keyfunc):
         out_name = "jsons/" + run_id + ".json"
         with open(out_name, "w") as f:
             f.write(Submission(pages).to_json())
