@@ -124,12 +124,12 @@ class Page(Jsonable):
         self.run_id = ""
         self.title = ""
         self.squid = ""
-        self.paragraphs = None # []
+        self.paragraphs =  []
         self.paragraph_origins = []
 
 
     def to_json(self):
-        self.paragraphs = [json.loads(i.to_json()) for i in self.paragraphs] if self.paragraphs is not None else None
+        self.paragraphs = [json.loads(i.to_json()) for i in self.paragraphs] if self.paragraphs is not [] else None
         self.query_facets = [json.loads(i.to_json()) for i in self.query_facets]
         self.paragraph_origins = [json.loads(i.to_json()) for i in self.paragraph_origins]
         delattr(self, "pids")
