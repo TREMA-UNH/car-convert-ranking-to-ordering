@@ -151,14 +151,14 @@ class Page(Jsonable):
 
         with open(out_name, "w") as f:
             f.write(self.to_json())
-
+                                                    f
 
 class Submission(Jsonable):
     """ A submission for one system/run """
     submission_data = [] # type:[Page]
 
     def __init__(self, submission_data):
-        self.submission_data = [json.loads(i.tojson()) for i in submission_data]
+        self.submission_data = [json.loads(i.to_json()) for i in submission_data]
 
     def to_json(self):
         return super().to_json()
