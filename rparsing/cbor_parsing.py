@@ -160,6 +160,8 @@ class Submission(Jsonable):
     def __init__(self, submission_data):
         self.submission_data = [json.loads(i.tojson()) for i in submission_data]
 
+    def to_json(self):
+        return super().to_json()
 
 
 # class MisoAnnotationReader(object):
