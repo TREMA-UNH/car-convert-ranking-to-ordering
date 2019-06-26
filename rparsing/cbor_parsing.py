@@ -414,7 +414,7 @@ def run_parse():
     np = int(parsed["n"])
     cbor_loc = parsed["paragraph_cbor"]
     run_manager = RunManager(run_loc, outlines, nlines=np)
-    # run_manager.retrieve_text(cbor_loc)
+    run_manager.retrieve_text(cbor_loc)
 
 
     def keyfunc(p):
