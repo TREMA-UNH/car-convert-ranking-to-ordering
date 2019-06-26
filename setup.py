@@ -11,6 +11,6 @@ setup(
     author='jramsdell',
     author_email='',
     description='',
-    install_requires=['trec-car-tools'],
+    install_requires=['trec-car-tools>=2.3'],
 
 )
