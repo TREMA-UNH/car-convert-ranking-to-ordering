@@ -15,7 +15,7 @@ from trec_car.read_data import iter_outlines, iter_paragraphs, ParaLink, ParaTex
 class OutlineReader(object):
     page_title_map = ...                    # type: Dict[str, str]
     page_toplevel_section_names = ...       # type: Dict[str, List[str]]
-    page_toplevel_section_ids = ...         # type: Dict[str, str]
+    page_toplevel_section_ids = ...         # type: Dict[str, List[str]]
 
     def __init__(self, f):
         """
@@ -23,7 +23,7 @@ class OutlineReader(object):
         """
         self.page_title_map = {}
         self.page_toplevel_section_names = {}
-        self.page_toplevel_section_ids = {}
+        self.page_toplevel_section_ids = {} # type: Dict[str, str]
 
         # Iterate of .cbor file (each item is a page outline)
         for outline in iter_outlines(f):
@@ -377,7 +377,7 @@ def run_parse():
     np = int(parsed["n"])
     cbor_loc = parsed["paragraph_cbor"]
     run_manager = RunManager(run_loc, outlines, nlines=np)
-    run_manager.retrieve_text(cbor_loc)
+    # run_manager.retrieve_text(cbor_loc)
 
 
     def keyfunc(p):
