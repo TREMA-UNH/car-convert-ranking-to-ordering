@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 import itertools
-from typing import List, Any, Dict, Tuple
+from abc import abstractmethod
+from typing import List,  Dict, Tuple
 import argparse
 import os
 import json
@@ -8,13 +9,6 @@ from collections import Counter
 
 
 from trec_car.read_data import iter_outlines, iter_paragraphs, ParaLink, ParaText
-import sys
-
-# Removed labelState
-# facetState now has "relevance" value
-
-# Hidden state will be renamed to nonrelevantState
-# Won't have a second value ('false')
 
 
 # ---------------------------- CBOR Outline Parser ----------------------------
@@ -53,9 +47,9 @@ class Jsonable(object):
     """
     Convenience class that contains method to convert attributes of a class into a json.
     """
-    def to_json(self):
-        return json.dumps(self, default=lambda o: o.__dict__,
-                          sort_keys=True, indent=4)
+    @abstractmethod
+    def to_json(self)-> dict:
+        pass
 
 
 class Section(Jsonable):
@@ -66,8 +60,18 @@ class ParBody(Jsonable):
     """
     Represents the text of a paragraph.
     """
-    def __init__(self):
-        self.text = "Test"
+    def __init__(self, text, entity=None, link_section=None, entity_name=None):
+        self.entity_name = entity_name
+        self.link_section = link_section
+        self.entity = entity
+        self.text = text
+
+
+    def to_json(self) -> dict:
+        if self.entity is None:
+            return {"text": self.text}
+        else:
+            return self.__dict__
 
 
 class Paragraph(Jsonable):
@@ -76,14 +80,19 @@ class Paragraph(Jsonable):
     """
     para_body = ...  # type: List[ParBody]
 
-    def __init__(self, paraId):
+    def __init__(self, paraId, para_body=None):
         self.para_id = paraId
         # self.paraBody = [ParBody()]
-        self.para_body = []
+        self.para_body = para_body
 
-    def to_json(self):
-        self.para_body = [json.loads(i.to_json()) for i in self.para_body]
-        return super().to_json()
+    def to_json(self) -> dict:
+        if self.para_body is None:
+            return {"para_id": self.para_id}
+        else:
+            return {"para_id": self.para_id
+                    , "para_body" : [ body.to_json() for body in self.para_body]
+                    }
+
 
 
 class QueryFacet(Jsonable):
@@ -94,9 +103,12 @@ class QueryFacet(Jsonable):
         self.heading_id = heading_id
         self.heading = heading
 
+    def to_json(self)-> dict:
+        return self.__dict__
+
 class ParagraphOrigin(Jsonable):
     """
-    Contains information about the origin of a paragraph
+    Contains information about the ranking from which a paragraph originates
     """
     def __init__(self, para_id, section_path, rank_score, rank):
         """
@@ -110,6 +122,9 @@ class ParagraphOrigin(Jsonable):
         self.rank_score = rank_score
         self.rank = rank
 
+    def to_json(self)-> dict:
+        return self.__dict__
+
 class Page(Jsonable):
     """
     A page used for annotations.
@@ -118,22 +133,25 @@ class Page(Jsonable):
     paragraphs = ... # type: List[Paragraph]
     paragraph_origins = ... # type: List[ParagraphOrigin]
 
-    def __init__(self):
+    def __init__(self, squid, title, run_id, query_facets):
+
+        self.query_facets = query_facets
+        self.run_id = run_id
+        self.title = title
+        self.squid = squid
+
+        # paragraphs get loaded later
         self.pids = set()
-        self.query_facets = []
-        self.run_id = ""
-        self.title = ""
-        self.squid = ""
-        self.paragraphs =  []
-        self.paragraph_origins = []
+        self.paragraphs = []
 
+        # paragraph origins
+        self.paragraph_origins = None
 
-    def to_json(self):
-        self.paragraphs = [json.loads(i.to_json()) for i in self.paragraphs] if self.paragraphs is not [] else None
-        self.query_facets = [json.loads(i.to_json()) for i in self.query_facets]
-        self.paragraph_origins = [json.loads(i.to_json()) for i in self.paragraph_origins]
-        delattr(self, "pids")
-        return super().to_json()
+    def add_paragraph_origins(self, origin):
+        if self.paragraph_origins is None:
+            self.paragraph_origins = []
+        self.paragraph_origins.append(origin)
+
 
 
     def add_paragraph(self, paragraph: Paragraph):
@@ -141,66 +159,27 @@ class Page(Jsonable):
             self.pids.add(paragraph.para_id)
             self.paragraphs.append(paragraph)
 
-    def write_self(self):
-        """
-        Calls to_json recursively on all of the page's components and then writes contents to a file.
-        """
-        out_name = "jsons/" + self.run_id + "_" + self.title.replace(" ", "_") + ".json"
-        if not os.path.exists("jsons/"):
-            os.mkdir("jsons/")
-
-        with open(out_name, "w") as f:
-            f.write(self.to_json())
 
 
-class Submission(Jsonable):
-    """ A submission for one system/run """
-    submission_data = [] # type:[Page]
 
-    def __init__(self, submission_data):
-        self.submission_data = [json.loads(i.to_json()) for i in submission_data]
 
     def to_json(self):
-        return super().to_json()
+        dictionary =  { "title": self.title
+                , "squid": self.squid
+                , "run_id": self.run_id
+                , "query_facets": [facet.to_json() for facet in self.query_facets]
+                , "paragraphs": [para.to_json() for  para in self.paragraphs]
+                }
+        if self.paragraph_origins is None:
+            return dictionary
+        else:
+            dictionary["paragraph_origins"] = [origin.to_json() for origin in self.paragraph_origins]
+            return dictionary
 
 
-# class MisoAnnotationReader(object):
-#     def __init__(self, anno_loc):
-#         with open (anno_loc) as f:
-#             saved_data = self.parse_annotations(f)
-#             print(saved_data.keys())
-#
-#         query_facet_map = self.create_facet_map(saved_data)
-#         print(query_facet_map)
-#
-#     def create_facet_map(self, saved_data):
-#         facets = saved_data["facetState"]
-#         query_facet_map = {}
-#         for (entry, facet) in facets:
-#             pid = entry["paragraphId"]
-#             qid = entry["queryId"]
-#             heading = facet["heading"]
-#
-#             if qid not in query_facet_map:
-#                 query_facet_map[qid] = {}
-#             facet_map = query_facet_map[qid]
-#
-#             if heading not in facet_map:
-#                 facet_map[heading] = set()
-#             facet_map[heading].add(pid)
-#
-#         return query_facet_map
-#
-#
-#     def create_transition_map(self, saved_data):
-#         pass
-#
-#
-#
-#     def parse_annotations(self, f):
-#         json_text = f.read()
-#         annotations = json.loads(json_text)
-#         return annotations["savedData"]
+
+def submission_to_json(pages: [Page]):
+    return "\n".join([json.dumps(page.to_json()) for page in pages])
 
 
 
@@ -233,7 +212,7 @@ class RunManager(object):
                 self.parse_run_line(run_line)
 
 
-    def parse_run_line(self, run_line: 'RunLine'):
+    def parse_run_line(self, run_line):
         e = run_line.qid.split("/")  # todo: this gives incorrect results , see issue #6
 
         # Skip queries that are not top-level!
@@ -245,14 +224,13 @@ class RunManager(object):
 
         # The first time we see a toplevel query for a particular run, we need to initialize a jsonable page
         if key not in self.pages:
-            p = Page()
-            p.squid = tid
-            p.title = self.oreader.page_title_map[tid]
-            p.run_id = run_line.run_name
-            for (f_heading, f_id) in zip(self.oreader.page_toplevel_section_names[tid],
-                                         self.oreader.page_toplevel_section_ids[tid]):
-                qf = QueryFacet(heading=f_heading, heading_id=f_id)
-                p.query_facets.append(qf)
+            pageFacets = [ QueryFacet(heading=f_heading, heading_id=f_id)
+                           for (f_heading, f_id) in zip(self.oreader.page_toplevel_section_names[tid],
+                                                        self.oreader.page_toplevel_section_ids[tid])]
+            # todo this is the wrong approach. We need to take facets from the outline file, not the ranking file
+
+
+            p = Page(squid = tid, title=self.oreader.page_title_map[tid], run_id=run_line.run_name, query_facets = pageFacets)
             self.pages[key] = p
 
         page = self.pages[key]
@@ -267,10 +245,9 @@ class RunManager(object):
             para_id=run_line.doc_id,
             rank=run_line.rank,
             rank_score=run_line.score,
-            # section_path=self.oreader.page_title_map[run_line.qid]
-            section_path=run_line.qid      # todo fix, see issue #6
+            section_path=run_line.qid
         )
-        page.paragraph_origins.append(origin)
+        page.add_paragraph_origins(origin)
 
     def register_paragraph(self, paragraph: Paragraph):
         """
@@ -363,16 +340,12 @@ class ParagraphTextCollector(object):
         :param p_to_be_updated: Paragraph that we will be updating
         :param pbodies:
         """
-        for e in pbodies:
-            body = ParBody()
+        for body in pbodies:
+            if isinstance(body, ParaLink):
+                body = ParBody(text=body.anchor_text, entity=body.pageid, link_section=body.link_section, entity_name=body.page)
+            elif isinstance(body, ParaText):
+                body = ParBody(text=body.get_text())
 
-            if isinstance(e, ParaLink):
-                body.text = e.anchor_text
-                body.entity = e.pageid
-                body.link_section = e.link_section
-                body.entity_name = e.page
-            elif isinstance(e, ParaText):
-                body.text = e.get_text()
             p.para_body.append(body)
 
 
@@ -396,16 +369,6 @@ def get_parser():
     parsed = parser.parse_args()
     return parsed.__dict__
 
-# def test(cbor_loc):
-#     with open(cbor_loc, 'rb') as f:
-#         p = next(iter_paragraphs(f))
-#         print(p.bodies)
-#         for e in p.bodies:
-#             if isinstance(e, ParaLink):
-#                 print(e.page)
-#                 print(e.get_text())
-#                 print(e.anchor_text)
-
 
 def run_parse():
     parsed = get_parser()
@@ -426,7 +389,7 @@ def run_parse():
     for run_id, pages in itertools.groupby(sorted(run_manager.pages.values(), key=keyfunc), key=keyfunc):
         out_name = "jsons/" + run_id + ".json"
         with open(out_name, "w") as f:
-            f.write(Submission(pages).to_json())
+            f.write(submission_to_json(pages))
 
     # for (k,v) in sorted(run_manager.pages.items(), key=lambda x: x[0]):
     #     v.write_self()
