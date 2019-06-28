@@ -85,6 +85,13 @@ class Paragraph(Jsonable):
         # self.paraBody = [ParBody()]
         self.para_body = para_body
 
+    def add_para_body(self, body):
+        if self.para_body is None:
+            self.para_body = []
+        self.para_body.append(body)
+
+
+
     def to_json(self) -> dict:
         if self.para_body is None:
             return {"para_id": self.para_id}
@@ -346,7 +353,7 @@ class ParagraphTextCollector(object):
             elif isinstance(body, ParaText):
                 body = ParBody(text=body.get_text())
 
-            p.para_body.append(body)
+            p.add_para_body(body)
 
 
 
@@ -377,7 +384,7 @@ def run_parse():
     np = int(parsed["n"])
     cbor_loc = parsed["paragraph_cbor"]
     run_manager = RunManager(run_loc, outlines, nlines=np)
-    # run_manager.retrieve_text(cbor_loc)
+    run_manager.retrieve_text(cbor_loc)
 
 
     def keyfunc(p):
