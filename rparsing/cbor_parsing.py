@@ -123,11 +123,16 @@ class Page(Jsonable):
     A page used for annotations.
     """
 
+    # paragraphs retrieved per facet
+    facet_paragraphs = {} # type: Dict[QueryFacet,List[Paragraph]]
+
     # paragraphs get loaded later
     pids = set() # type: Set[str]
     paragraphs = [] # type: List[Paragraph]
     # paragraph origins
     paragraph_origins = None # type: Union[List[ParagraphOrigin], None]
+
+
 
     def __init__(self, squid: str, title: str, run_id: Union[str,None], query_facets: List[QueryFacet]) -> None:
         self.query_facets = query_facets  # type: List[QueryFacet]
@@ -143,11 +148,11 @@ class Page(Jsonable):
 
 
 
-    def add_paragraph(self, paragraph: Paragraph):
-        if paragraph.para_id not in self.pids:
-            self.pids.add(paragraph.para_id)
-            self.paragraphs.append(paragraph)
-
+    # def add_paragraph(self, paragraph: Paragraph):
+    #     if paragraph.para_id not in self.pids:
+    #         self.pids.add(paragraph.para_id)
+    #         self.paragraphs.append(paragraph)
+    #
 
     def copy_prototype(self,run_id):
         return Page(self.squid, self.title, run_id, self.query_facets)
@@ -166,6 +171,58 @@ class Page(Jsonable):
             dictionary["paragraph_origins"] = [origin.to_json() for origin in self.paragraph_origins]
             return dictionary
 
+    def add_facet_paragraph(self, qid, paragraph):
+        assert qid.startswith(self.squid), ( "Query id %s does not belong to this page %s"  % (qid, self.squid))
+
+        if qid not in self.facet_paragraphs:
+            self.facet_paragraphs[qid]=[]
+        self.facet_paragraphs[qid].append(paragraph)
+
+
+    def populate_paragraphs(self, top_k):
+        """
+        In a round-robin fashion, select the top ceil(top_k/num_facets) paragraphs from each ranking, as set through :func:`add_facet_paragraph`.
+
+        However, in cases where a ranking does not have enough paragraphs, or facets are missing, or
+        where top_k is not divisible by num_facets and we would have either more or less than top_k paragraphs, it is
+        difficult to best fill the `top_k` budget.
+
+        This function will use a round-robin approach, iteratively filling the budget by selecting one paragraph from
+        each facet, then looping over facets until the budget is filled. This function will do its best to
+        exactly meet the top_k budget. Only when there are not enough retrieved paragraphs (submitted through :func:`add_facet_paragraph`)
+        this function will not maximize the budget.
+
+        After determining which paragraphs to select, this function will populate the self.paragraphs field  (and self.pids)
+        by concatenating the selected paragaphs from self.facet_paragraphs in the order in which facets appear in the
+        outline.
+
+        :param top_k:
+        :return:
+        """
+        facet_take_k = {qf:0 for qf in self.facet_paragraphs}
+        k = 0
+        did_change = True
+        self.paragraphs = []
+
+        while k < top_k and did_change:
+            did_change = False
+            for f in self.query_facets:
+                facet = f.facet_id
+                if k < top_k and facet in facet_take_k:
+                    if len(self.facet_paragraphs[facet]) > (facet_take_k[facet] + 1):
+                        facet_take_k[facet] += 1
+                        k += 1
+                        did_change = True
+
+        assert sum (v for v in facet_take_k.values()) > 0, "not taking any paragraph"
+
+        for f in self.query_facets:
+            facet = f.facet_id
+            if facet in facet_take_k:
+                self.paragraphs.extend(self.facet_paragraphs[facet][0 : facet_take_k[facet]])
+
+
+        self.pids = {p.para_id for p in self.paragraphs}
 
 
 def submission_to_json(pages: Iterator[Page]) -> str:
@@ -200,13 +257,18 @@ class RunManager(object):
 
     page_prototypes = {} # type: Dict[str, Page]
 
-    def __init__(self, run_dir: str, outline_cbor_file: str, nlines: int = 20) -> None:
+    def __init__(self, run_dir: str, outline_cbor_file: str, top_k: int = 20) -> None:
 
+        self.page_prototypes = {}
         with open(outline_cbor_file, 'rb') as f:
-            self.page_prototypes = {facet.facet_id: page for page in OutlineReader.initialize_pages(f) for facet in page.query_facets}
+            for page in OutlineReader.initialize_pages(f):
+                for facet in page.query_facets:
+                    self.page_prototypes[facet.facet_id] = page
+
+            # self.page_prototypes = {facet.facet_id: page for page in OutlineReader.initialize_pages(f) for facet in page.query_facets}
 
         for run_loc in os.listdir(run_dir):
-            self.runs.append(RunReader(run_dir + "/" + run_loc, nlines=nlines))
+            self.runs.append(RunReader(run_dir + "/" + run_loc, top_k=top_k))
 
 
         # After parsing run files, convert lines of these files into pages
@@ -220,6 +282,8 @@ class RunManager(object):
         if(run_line.qid in self.page_prototypes):   # Ignore other rankings
             page_prototype = self.page_prototypes[run_line.qid]
             squid = page_prototype.squid
+            assert run_line.qid.startswith(squid), "fetched wrong page prototype"
+
             key = RunPageKey(run_name=run_line.run_name, squid=squid)
 
             # The first time we see a toplevel query for a particular run, we need to initialize a jsonable page
@@ -227,11 +291,13 @@ class RunManager(object):
                 self.pages[key] = page_prototype.copy_prototype(run_line.run_name)
 
             page = self.pages[key]
+            assert run_line.qid.startswith(page.squid), "fetched wrong page"
 
             # Add paragraph and register this for later (when we retrieve text / links)
             paragraph = Paragraph(paraId=run_line.doc_id)  # create empty paragraph, contents will be loaded later.
-            page.add_paragraph(paragraph)
-            self.register_paragraph(paragraph)
+            page.add_facet_paragraph(run_line.qid, paragraph)
+            assert run_line.qid.startswith(page.squid), "adding paragraphs to wrong page"
+            # self.register_paragraph(paragraph)
 
             # Also add which query this paragraph is with respect to
             origin = ParagraphOrigin(
@@ -241,6 +307,8 @@ class RunManager(object):
                 section_path=run_line.qid
             )
             page.add_paragraph_origins(origin)
+
+
 
     def register_paragraph(self, paragraph: Paragraph):
         """
@@ -262,6 +330,9 @@ class RunManager(object):
         pcollector = ParagraphTextCollector(self.paragraphs_to_retrieve)
         pcollector.retrieve_paragraph_mappings(paragraph_cbor_file)
 
+    def cut_pages_to_top_k(self, top_k):
+        for (key, page)  in self.pages.items():
+            page.populate_paragraphs(top_k)
 
 class RunLine(object):
     def __init__(self, line):
@@ -279,22 +350,15 @@ class RunReader(object):
     """
     runlines = [] # type: List[RunLine]
 
-    def __init__(self, run_loc, nlines):
-        self.run_counts = Counter()
+    def __init__(self, run_loc, top_k):
         self.seen_pids = set()  # type: Set[str]
 
         with open(run_loc) as f:
             for line in f:
                 run_line = RunLine(line)
-                self.run_counts[run_line.qid] += 1
-
-                # Only store the top N retrieved paragraphs from each query
-                if self.run_counts[run_line.qid] > nlines:
-                    continue
-                self.seen_pids.add(run_line.doc_id)
-
-
-                self.runlines.append(RunLine(line))
+                if (run_line.rank <= top_k):
+                    self.seen_pids.add(run_line.doc_id)
+                    self.runlines.append(RunLine(line))
 
 
 
@@ -366,11 +430,17 @@ def run_parse() -> None:
     parsed = get_parser()
     outlines_cbor_file = parsed["outline_cbor"]
     run_loc = parsed["run_directory"]
-    np = int(parsed["n"])
+    top_k = int(parsed["n"])
     paragraph_cbor_file = parsed["paragraph_cbor"]
-    run_manager = RunManager(run_loc, outlines_cbor_file, nlines=np)
-    run_manager.retrieve_text(paragraph_cbor_file)
+    run_manager = RunManager(run_loc, outlines_cbor_file, top_k=top_k)
 
+    for page in run_manager.pages.values():
+        page.populate_paragraphs(top_k)
+    # run_manager.retrieve_text(paragraph_cbor_file)
+
+
+    # for page in run_manager.pages.values():
+    #     assert not page.paragraphs == [], "paragraphs not populated"
 
     def keyfunc(p):
         return p.run_id
