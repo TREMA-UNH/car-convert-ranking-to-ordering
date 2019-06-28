@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 import itertools
 from abc import abstractmethod
-from typing import List,  Dict, Tuple
+from typing import List, Dict, Union, Set, Iterator
 import argparse
 import os
 import json
@@ -13,33 +13,18 @@ from trec_car.read_data import iter_outlines, iter_paragraphs, ParaLink, ParaTex
 
 # ---------------------------- CBOR Outline Parser ----------------------------
 class OutlineReader(object):
-    page_title_map = ...                    # type: Dict[str, str]
-    page_toplevel_section_names = ...       # type: Dict[str, List[str]]
-    page_toplevel_section_ids = ...         # type: Dict[str, List[str]]
 
-    def __init__(self, f):
-        """
-        :type outline_loc: Location of .cbor outline file
-        """
-        self.page_title_map = {}
-        self.page_toplevel_section_names = {}
-        self.page_toplevel_section_ids = {} # type: Dict[str, str]
+    @staticmethod
+    def outline_to_page(outline):
+        # todo adjust for hierarchical sections using outline.flat_headings_list
+        pageFacets = [QueryFacet(facet_id=outline.page_id+"/"+section.headingId, heading=section.heading) for section in outline.child_sections]
 
-        # Iterate of .cbor file (each item is a page outline)
-        for outline in iter_outlines(f):
-            self.page_title_map[outline.page_id] = outline.page_name
-            toplevel_section_names = []
-            toplevel_section_ids = []
+        return Page(squid = outline.page_id, title=outline.page_name, run_id=None, query_facets = pageFacets)
 
-            # Contains the top-level sections as children of the page outline
-            for section_outline in outline.child_sections:
-                toplevel_section_names.append(section_outline.heading)
-                id = outline.page_id + "/" + section_outline.headingId
-                toplevel_section_ids.append(id)
-                self.page_title_map[id] = section_outline.heading
 
-            self.page_toplevel_section_names[outline.page_id] = toplevel_section_names
-            self.page_toplevel_section_ids[outline.page_id] = toplevel_section_ids
+    @staticmethod
+    def initialize_pages(f):
+        return [OutlineReader.outline_to_page(outline) for outline in iter_outlines(f)]
 
 
 # ---------------------------- JSON Data Structueres ----------------------------
@@ -78,11 +63,10 @@ class Paragraph(Jsonable):
     """
     Paragraph container that contains links / paragraph text. Is updated using ParagraphTextcollector class.
     """
-    para_body = ...  # type: List[ParBody]
+    para_body = None # type: Union[None, List[ParBody]]
 
     def __init__(self, paraId, para_body=None):
         self.para_id = paraId
-        # self.paraBody = [ParBody()]
         self.para_body = para_body
 
     def add_para_body(self, body):
@@ -106,12 +90,14 @@ class QueryFacet(Jsonable):
     """
     An annotation query facet (containing the facet's name and id)
     """
-    def __init__(self, heading_id, heading):
-        self.heading_id = heading_id
+    def __init__(self, facet_id, heading):
+        self.facet_id = facet_id
         self.heading = heading
 
     def to_json(self)-> dict:
-        return self.__dict__
+        return {"heading": self.heading
+                , "heading_id": self.facet_id
+                }
 
 class ParagraphOrigin(Jsonable):
     """
@@ -136,23 +122,19 @@ class Page(Jsonable):
     """
     A page used for annotations.
     """
-    query_facets = ...  # type: List[QueryFacet]
-    paragraphs = ... # type: List[Paragraph]
-    paragraph_origins = ... # type: List[ParagraphOrigin]
 
-    def __init__(self, squid, title, run_id, query_facets):
+    # paragraphs get loaded later
+    pids = set() # type: Set[str]
+    paragraphs = [] # type: List[Paragraph]
+    # paragraph origins
+    paragraph_origins = None # type: Union[List[ParagraphOrigin], None]
 
-        self.query_facets = query_facets
+    def __init__(self, squid: str, title: str, run_id: Union[str,None], query_facets: List[QueryFacet]) -> None:
+        self.query_facets = query_facets  # type: List[QueryFacet]
         self.run_id = run_id
         self.title = title
         self.squid = squid
 
-        # paragraphs get loaded later
-        self.pids = set()
-        self.paragraphs = []
-
-        # paragraph origins
-        self.paragraph_origins = None
 
     def add_paragraph_origins(self, origin):
         if self.paragraph_origins is None:
@@ -167,7 +149,8 @@ class Page(Jsonable):
             self.paragraphs.append(paragraph)
 
 
-
+    def copy_prototype(self,run_id):
+        return Page(self.squid, self.title, run_id, self.query_facets)
 
 
     def to_json(self):
@@ -185,12 +168,25 @@ class Page(Jsonable):
 
 
 
-def submission_to_json(pages: [Page]):
+def submission_to_json(pages: Iterator[Page]) -> str:
     return "\n".join([json.dumps(page.to_json()) for page in pages])
 
 
 
 # ---------------------------- Run Parsing ----------------------------
+class RunPageKey(object):
+
+    def __eq__(self, o: object) -> bool:
+        return isinstance(o, RunPageKey) and self.key.__eq__(o.key)
+
+
+    def __hash__(self) -> int:
+        return self.key.__hash__()
+
+    def __init__(self, run_name, squid):
+        self.run_name = run_name
+        self.squid = squid
+        self.key = (run_name, squid)
 
 class RunManager(object):
     """
@@ -198,16 +194,16 @@ class RunManager(object):
      - Parses a directory full of runfiles.
      - Creates data classes (that can be turned into jsons) based on these runs
     """
-    paragraphs_to_retrieve = ...  # type: Dict[str, List[Paragraph]]
-    runs = ... # type: List[RunReader]
-    pages = ...  # type: Dict[Tuple[str, str], Page]
+    paragraphs_to_retrieve = {} # type: Dict[str, List[Paragraph]]
+    runs = [] # type: List[RunReader]
+    pages = {}  # type: Dict[RunPageKey, Page]
 
-    def __init__(self, run_dir, cbor_loc, nlines=20):
-        self.runs = []
-        self.pages = {}
-        self.paragraphs_to_retrieve = {}
-        with open(cbor_loc, 'rb') as f:
-            self.oreader = OutlineReader(f)
+    page_prototypes = {} # type: Dict[str, Page]
+
+    def __init__(self, run_dir: str, outline_cbor_file: str, nlines: int = 20) -> None:
+
+        with open(outline_cbor_file, 'rb') as f:
+            self.page_prototypes = {facet.facet_id: page for page in OutlineReader.initialize_pages(f) for facet in page.query_facets}
 
         for run_loc in os.listdir(run_dir):
             self.runs.append(RunReader(run_dir + "/" + run_loc, nlines=nlines))
@@ -220,41 +216,31 @@ class RunManager(object):
 
 
     def parse_run_line(self, run_line):
-        e = run_line.qid.split("/")  # todo: this gives incorrect results , see issue #6
 
-        # Skip queries that are not top-level!
-        if len(e) != 2:
-            return
+        if(run_line.qid in self.page_prototypes):   # Ignore other rankings
+            page_prototype = self.page_prototypes[run_line.qid]
+            squid = page_prototype.squid
+            key = RunPageKey(run_name=run_line.run_name, squid=squid)
 
-        tid = e[0]  # toplevel query ID
-        key = (run_line.run_name, tid)
+            # The first time we see a toplevel query for a particular run, we need to initialize a jsonable page
+            if key not in self.pages:
+                self.pages[key] = page_prototype.copy_prototype(run_line.run_name)
 
-        # The first time we see a toplevel query for a particular run, we need to initialize a jsonable page
-        if key not in self.pages:
-            pageFacets = [ QueryFacet(heading=f_heading, heading_id=f_id)
-                           for (f_heading, f_id) in zip(self.oreader.page_toplevel_section_names[tid],
-                                                        self.oreader.page_toplevel_section_ids[tid])]
-            # todo this is the wrong approach. We need to take facets from the outline file, not the ranking file
+            page = self.pages[key]
 
+            # Add paragraph and register this for later (when we retrieve text / links)
+            paragraph = Paragraph(paraId=run_line.doc_id)  # create empty paragraph, contents will be loaded later.
+            page.add_paragraph(paragraph)
+            self.register_paragraph(paragraph)
 
-            p = Page(squid = tid, title=self.oreader.page_title_map[tid], run_id=run_line.run_name, query_facets = pageFacets)
-            self.pages[key] = p
-
-        page = self.pages[key]
-
-        # Add paragraph and register this for later (when we retrieve text / links)
-        paragraph = Paragraph(paraId=run_line.doc_id)  # create empty paragraph, contents will be loaded later.
-        page.add_paragraph(paragraph)
-        self.register_paragraph(paragraph)
-
-        # Also add which query this paragraph is with respect to
-        origin = ParagraphOrigin(
-            para_id=run_line.doc_id,
-            rank=run_line.rank,
-            rank_score=run_line.score,
-            section_path=run_line.qid
-        )
-        page.add_paragraph_origins(origin)
+            # Also add which query this paragraph is with respect to
+            origin = ParagraphOrigin(
+                para_id=run_line.doc_id,
+                rank=run_line.rank,
+                rank_score=run_line.score,
+                section_path=run_line.qid
+            )
+            page.add_paragraph_origins(origin)
 
     def register_paragraph(self, paragraph: Paragraph):
         """
@@ -268,35 +254,34 @@ class RunManager(object):
         self.paragraphs_to_retrieve[key].append(paragraph)
 
 
-    def retrieve_text(self, cbor_loc):
+    def retrieve_text(self, paragraph_cbor_file):
         """
         Passes all registered paragraphs to the ParagraphTextCollector for text retrieval.
-        :param cbor_loc: Location to paragraphCorpus.cbor file
+        :param paragraph_cbor_file: Location to paragraphCorpus.cbor file
         """
         pcollector = ParagraphTextCollector(self.paragraphs_to_retrieve)
-        pcollector.retrieve_paragraph_mappings(cbor_loc)
+        pcollector.retrieve_paragraph_mappings(paragraph_cbor_file)
 
 
 class RunLine(object):
     def __init__(self, line):
-        e = line.split()
-        self.qid = e[0]             # Query ID
-        self.doc_id = e[2]          # Paragraph ID
-        self.rank = int(e[3])       # Rank of retrieved paragraph
-        self.score = float(e[4])    # Score of retrieved paragraph
-        self.run_name = e[5]        # Name of the run
+        splits = line.split()
+        self.qid = splits[0]             # Query ID
+        self.doc_id = splits[2]          # Paragraph ID
+        self.rank = int(splits[3])       # Rank of retrieved paragraph
+        self.score = float(splits[4])    # Score of retrieved paragraph
+        self.run_name = splits[5]        # Name of the run
 
 
 class RunReader(object):
     """
     Responsible for reading a single runfile, line-by-line, and storing them in RunLine data classes.
     """
-    runlines = ...  # type: List[RunLine]
+    runlines = [] # type: List[RunLine]
 
     def __init__(self, run_loc, nlines):
-        self.runlines = []
         self.run_counts = Counter()
-        self.seen_pids = set()
+        self.seen_pids = set()  # type: Set[str]
 
         with open(run_loc) as f:
             for line in f:
@@ -321,14 +306,14 @@ class ParagraphTextCollector(object):
         self.paragraphs_to_retrieve = paragraphs_to_retrieve
 
 
-    def retrieve_paragraph_mappings(self, cbor_loc):
+    def retrieve_paragraph_mappings(self, paragraph_cbor_file):
         """
-        :param cbor_loc: Location of the paragraphCorpus.cbor file
+        :param paragraph_cbor_file: Location of the paragraphCorpus.cbor file
         """
         counter = 0
         seen = 0
         total = len(self.paragraphs_to_retrieve)
-        with open(cbor_loc, 'rb') as f:
+        with open(paragraph_cbor_file, 'rb') as f:
             for p in iter_paragraphs(f):
                 counter += 1
                 if counter % 100000 == 0:
@@ -344,7 +329,7 @@ class ParagraphTextCollector(object):
 
     def update_paragraph(self, p: Paragraph, pbodies):
         """
-        :param p_to_be_updated: Paragraph that we will be updating
+        :param p: Paragraph that we will be updating
         :param pbodies:
         """
         for body in pbodies:
@@ -377,14 +362,14 @@ def get_parser():
     return parsed.__dict__
 
 
-def run_parse():
+def run_parse() -> None:
     parsed = get_parser()
-    outlines = parsed["outline_cbor"]
+    outlines_cbor_file = parsed["outline_cbor"]
     run_loc = parsed["run_directory"]
     np = int(parsed["n"])
-    cbor_loc = parsed["paragraph_cbor"]
-    run_manager = RunManager(run_loc, outlines, nlines=np)
-    run_manager.retrieve_text(cbor_loc)
+    paragraph_cbor_file = parsed["paragraph_cbor"]
+    run_manager = RunManager(run_loc, outlines_cbor_file, nlines=np)
+    run_manager.retrieve_text(paragraph_cbor_file)
 
 
     def keyfunc(p):
