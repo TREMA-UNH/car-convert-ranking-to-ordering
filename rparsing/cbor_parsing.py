@@ -222,6 +222,8 @@ class Page(Jsonable):
                 self.paragraphs.extend(self.facet_paragraphs[facet][0 : facet_take_k[facet]])
 
 
+        if k < top_k:
+            print ("Warning: page %s could only be populated with %d paragraphs (instead of full budget %d)" % (self.squid, k, top_k))
         self.pids = {p.para_id for p in self.paragraphs}
 
 
