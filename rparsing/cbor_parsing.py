@@ -5,7 +5,8 @@ from typing import List, Dict, Union, Set, Iterator
 import argparse
 import os
 import json
-from collections import Counter
+import sys
+
 
 
 from trec_car.read_data import iter_outlines, iter_paragraphs, ParaLink, ParaText
@@ -37,10 +38,6 @@ class Jsonable(object):
         pass
 
 
-class Section(Jsonable):
-    pass
-
-
 class ParBody(Jsonable):
     """
     Represents the text of a paragraph.
@@ -63,11 +60,10 @@ class Paragraph(Jsonable):
     """
     Paragraph container that contains links / paragraph text. Is updated using ParagraphTextcollector class.
     """
-    para_body = None # type: Union[None, List[ParBody]]
 
     def __init__(self, paraId, para_body=None):
         self.para_id = paraId
-        self.para_body = para_body
+        self.para_body = para_body  # type: Union[None, List[ParBody]]
 
     def add_para_body(self, body):
         if self.para_body is None:
@@ -93,6 +89,9 @@ class QueryFacet(Jsonable):
     def __init__(self, facet_id, heading):
         self.facet_id = facet_id
         self.heading = heading
+
+    def __str__(self):
+        return self.facet_id.__str__()
 
     def to_json(self)-> dict:
         return {"heading": self.heading
@@ -123,16 +122,6 @@ class Page(Jsonable):
     A page used for annotations.
     """
 
-    # paragraphs retrieved per facet
-    facet_paragraphs = {} # type: Dict[QueryFacet,List[Paragraph]]
-
-    # paragraphs get loaded later
-    pids = set() # type: Set[str]
-    paragraphs = [] # type: List[Paragraph]
-    # paragraph origins
-    paragraph_origins = None # type: Union[List[ParagraphOrigin], None]
-
-
 
     def __init__(self, squid: str, title: str, run_id: Union[str,None], query_facets: List[QueryFacet]) -> None:
         self.query_facets = query_facets  # type: List[QueryFacet]
@@ -140,19 +129,22 @@ class Page(Jsonable):
         self.title = title
         self.squid = squid
 
+        # paragraphs retrieved per facet
+        self.facet_paragraphs = {} # type: Dict[str,List[Paragraph]]
+
+        # paragraphs get loaded later
+        self.pids = set() # type: Set[str]
+        self.paragraphs = [] # type: List[Paragraph]
+        # paragraph origins
+        self.paragraph_origins = None # type: Union[List[ParagraphOrigin], None]
+
+
 
     def add_paragraph_origins(self, origin):
         if self.paragraph_origins is None:
             self.paragraph_origins = []
         self.paragraph_origins.append(origin)
 
-
-
-    # def add_paragraph(self, paragraph: Paragraph):
-    #     if paragraph.para_id not in self.pids:
-    #         self.pids.add(paragraph.para_id)
-    #         self.paragraphs.append(paragraph)
-    #
 
     def copy_prototype(self,run_id):
         return Page(self.squid, self.title, run_id, self.query_facets)
@@ -171,7 +163,7 @@ class Page(Jsonable):
             dictionary["paragraph_origins"] = [origin.to_json() for origin in self.paragraph_origins]
             return dictionary
 
-    def add_facet_paragraph(self, qid, paragraph):
+    def add_facet_paragraph(self, qid:str, paragraph: Paragraph)->None:
         assert qid.startswith(self.squid), ( "Query id %s does not belong to this page %s"  % (qid, self.squid))
 
         if qid not in self.facet_paragraphs:
@@ -199,27 +191,36 @@ class Page(Jsonable):
         :param top_k:
         :return:
         """
-        facet_take_k = {qf:0 for qf in self.facet_paragraphs}
+
+        facetKeys = self.facet_paragraphs.keys()
+        for fk in facetKeys:
+            assert fk.startswith(self.squid), "Facet of wrong page"
+
+
+        facet_take_k = {facet_id:0 for facet_id in self.facet_paragraphs}
         k = 0
         did_change = True
         self.paragraphs = []
 
         while k < top_k and did_change:
             did_change = False
-            for f in self.query_facets:
-                facet = f.facet_id
-                if k < top_k and facet in facet_take_k:
-                    if len(self.facet_paragraphs[facet]) > (facet_take_k[facet] + 1):
-                        facet_take_k[facet] += 1
+            for facet in self.query_facets:
+                facet_id = facet.facet_id
+                if k < top_k and facet_id in facet_take_k:
+                    if len(self.facet_paragraphs[facet_id]) > (facet_take_k[facet_id] + 1):
+                        facet_take_k[facet_id] += 1
                         k += 1
                         did_change = True
 
-        assert sum (v for v in facet_take_k.values()) > 0, "not taking any paragraph"
+        # assert sum (v for v in facet_take_k.values()) > 0, ("no paragraphs for select for page %s" % self.squid)
+        if sum (v for v in facet_take_k.values()) > 0:
+            sys.stderr.print("No paragraphs available to populate page %s" % self.squid)
 
-        for f in self.query_facets:
-            facet = f.facet_id
-            if facet in facet_take_k:
-                self.paragraphs.extend(self.facet_paragraphs[facet][0 : facet_take_k[facet]])
+        for facet in self.query_facets:
+            facet_id = facet.facet_id
+            if facet_id in facet_take_k:
+                ps = self.facet_paragraphs[facet_id][0 : facet_take_k[facet_id]] # type: List[Paragraph]
+                self.paragraphs.extend(ps)
 
 
         if k < top_k:
@@ -247,19 +248,23 @@ class RunPageKey(object):
         self.squid = squid
         self.key = (run_name, squid)
 
+
+    def __str__(self):
+        return (self.run_name, self.squid).__str__()
+
 class RunManager(object):
     """
     Responsible for all the heavy lifting:
      - Parses a directory full of runfiles.
      - Creates data classes (that can be turned into jsons) based on these runs
     """
-    paragraphs_to_retrieve = {} # type: Dict[str, List[Paragraph]]
-    runs = [] # type: List[RunReader]
-    pages = {}  # type: Dict[RunPageKey, Page]
-
-    page_prototypes = {} # type: Dict[str, Page]
 
     def __init__(self, run_dir: str, outline_cbor_file: str, top_k: int = 20) -> None:
+        self.paragraphs_to_retrieve = {} # type: Dict[str, List[Paragraph]]
+        self.runs = [] # type: List[RunReader]
+        self.pages = {}  # type: Dict[RunPageKey, Page]
+
+        self.page_prototypes = {} # type: Dict[str, Page]
 
         self.page_prototypes = {}
         with open(outline_cbor_file, 'rb') as f:
@@ -438,7 +443,7 @@ def run_parse() -> None:
 
     for page in run_manager.pages.values():
         page.populate_paragraphs(top_k)
-    # run_manager.retrieve_text(paragraph_cbor_file)
+    run_manager.retrieve_text(paragraph_cbor_file)
 
 
     # for page in run_manager.pages.values():
