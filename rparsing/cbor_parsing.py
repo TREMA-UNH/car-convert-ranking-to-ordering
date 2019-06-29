@@ -42,7 +42,7 @@ class ParBody(Jsonable):
     """
     Represents the text of a paragraph.
     """
-    def __init__(self, text, entity=None, link_section=None, entity_name=None):
+    def __init__(self, text:str, entity:Optional[str]=None, link_section:Optional[str]=None, entity_name:Optional[str]=None)-> None:
         self.entity_name = entity_name
         self.link_section = link_section
         self.entity = entity
@@ -61,7 +61,7 @@ class Paragraph(Jsonable):
     Paragraph container that contains links / paragraph text. Is updated using ParagraphTextcollector class.
     """
 
-    def __init__(self, paraId, para_body=None):
+    def __init__(self, paraId:str, para_body:Optional[List[ParBody]]=None)->None:
         self.para_id = paraId
         self.para_body = para_body  # type: Optional[List[ParBody]]
 
@@ -86,7 +86,7 @@ class QueryFacet(Jsonable):
     """
     An annotation query facet (containing the facet's name and id)
     """
-    def __init__(self, facet_id, heading):
+    def __init__(self, facet_id:str, heading:str)->None:
         self.facet_id = facet_id
         self.heading = heading
 
@@ -102,7 +102,7 @@ class ParagraphOrigin(Jsonable):
     """
     Contains information about the ranking from which a paragraph originates
     """
-    def __init__(self, para_id, section_path, rank_score, rank):
+    def __init__(self, para_id:str, section_path:str, rank_score:float, rank:int)->None:
         """
         :param para_id:         ID of the paragraph
         :param section_path:    The toplevel section that the paragraph is contained in
@@ -236,7 +236,7 @@ def submission_to_json(pages: Iterator[Page]) -> str:
 # ---------------------------- Run Parsing ----------------------------
 
 class RunLine(object):
-    def __init__(self, line:str, run_name: Optional[str] = None):
+    def __init__(self, line:str, run_name: Optional[str] = None) -> None:
         splits = line.split()
         self.qid = splits[0]             # Query ID
         self.doc_id = splits[2]          # Paragraph ID
@@ -252,7 +252,7 @@ class RunFile(object):
     Responsible for reading a single runfile, line-by-line, and storing them in RunLine data classes.
     """
 
-    def __init__(self,  top_k:int, run_file:str, run_name:Optional[str] = None):
+    def __init__(self,  top_k:int, run_file:str, run_name:Optional[str] = None)-> None:
         self. runlines = [] # type: List[RunLine]
         self.top_k = top_k # type: int
         self.load_run_file(run_file, run_name)
@@ -280,7 +280,7 @@ class RunPageKey(object):
     def __hash__(self) -> int:
         return self.key.__hash__()
 
-    def __init__(self, run_name, squid):
+    def __init__(self, run_name:str, squid:str)-> None:
         self.run_name = run_name
         self.squid = squid
         self.key = (run_name, squid)
@@ -386,7 +386,7 @@ class ParagraphTextCollector(object):
     """
     Retrieves text from paragraphCorpus.cbor file and adds it to the corresponding paragrpahs
     """
-    def __init__(self, paragraphs_to_retrieve):
+    def __init__(self, paragraphs_to_retrieve:Dict[str, List[Paragraph]])-> None:
         self.paragraphs_to_retrieve = paragraphs_to_retrieve
 
 
