@@ -222,9 +222,9 @@ class Page(Jsonable):
 
 
         if k == 0:
-            print ("Warning: No paragraphs for population of page %s" % (self.squid))
+            print ("Warning: No paragraphs for population of page %s" % (self.squid), file=sys.stderr)
         elif k < top_k:
-            print ("Warning: page %s could only be populated with %d paragraphs (instead of full budget %d)" % (self.squid, k, top_k))
+            print ("Warning: page %s could only be populated with %d paragraphs (instead of full budget %d)" % (self.squid, k, top_k), file=sys.stderr)
         self.pids = {p.para_id for p in self.paragraphs}
 
 
@@ -234,6 +234,43 @@ def submission_to_json(pages: Iterator[Page]) -> str:
 
 
 # ---------------------------- Run Parsing ----------------------------
+
+class RunLine(object):
+    def __init__(self, line:str, run_name: Optional[str] = None):
+        splits = line.split()
+        self.qid = splits[0]             # Query ID
+        self.doc_id = splits[2]          # Paragraph ID
+        self.rank = int(splits[3])       # Rank of retrieved paragraph
+        self.score = float(splits[4])    # Score of retrieved paragraph
+        self.run_name = splits[5]        # Name of the run
+        if run_name is not None:
+            self.run_name = run_name
+
+
+class RunFile(object):
+    """
+    Responsible for reading a single runfile, line-by-line, and storing them in RunLine data classes.
+    """
+
+    def __init__(self,  top_k:int, run_file:str, run_name:Optional[str] = None):
+        self. runlines = [] # type: List[RunLine]
+        self.top_k = top_k # type: int
+        self.load_run_file(run_file, run_name)
+
+    #
+    # def load_run_dir(self,run_dir):
+    #     for run_file in os.listdir(run_dir):
+    #         self.load_run_file(run_file = run_file, run_name = None)
+
+    def load_run_file(self,run_file, run_name: Optional[str]):
+        with open(run_file) as f:
+            for line in f:
+                run_line = RunLine(line, run_name)
+                if (run_line.rank <= self.top_k):
+                    self.runlines.append(run_line)
+
+
+
 class RunPageKey(object):
 
     def __eq__(self, o: object) -> bool:
@@ -259,14 +296,12 @@ class RunManager(object):
      - Creates data classes (that can be turned into jsons) based on these runs
     """
 
-    def __init__(self, run_dir: str, outline_cbor_file: str, top_k: int = 20) -> None:
+    def __init__(self, outline_cbor_file: str, top_k: int = 20, run_dir: Optional[str] = None, run_file: Optional[str] = None, run_name: Optional[str] = None) -> None:
         self.paragraphs_to_retrieve = {} # type: Dict[str, List[Paragraph]]
-        self.runs = [] # type: List[RunReader]
+        self.runs = [] # type: List[RunFile]
         self.pages = {}  # type: Dict[RunPageKey, Page]
-
         self.page_prototypes = {} # type: Dict[str, Page]
 
-        self.page_prototypes = {}
         with open(outline_cbor_file, 'rb') as f:
             for page in OutlineReader.initialize_pages(f):
                 for facet in page.query_facets:
@@ -274,8 +309,12 @@ class RunManager(object):
 
             # self.page_prototypes = {facet.facet_id: page for page in OutlineReader.initialize_pages(f) for facet in page.query_facets}
 
-        for run_loc in os.listdir(run_dir):
-            self.runs.append(RunReader(run_dir + "/" + run_loc, top_k=top_k))
+
+        if run_dir is not None:
+            for run_loc in os.listdir(run_dir):
+                self.runs.append(RunFile(top_k=top_k, run_file = run_dir + "/" + run_loc))
+        if run_file is not None:
+            self.runs.append(RunFile(top_k=top_k, run_file = run_file, run_name = run_name))
 
 
         # After parsing run files, convert lines of these files into pages
@@ -284,7 +323,7 @@ class RunManager(object):
                 self.parse_run_line(run_line)
 
 
-    def parse_run_line(self, run_line):
+    def parse_run_line(self, run_line: RunLine) -> None:
 
         if(run_line.qid in self.page_prototypes):   # Ignore other rankings
             page_prototype = self.page_prototypes[run_line.qid]
@@ -337,35 +376,9 @@ class RunManager(object):
         pcollector = ParagraphTextCollector(self.paragraphs_to_retrieve)
         pcollector.retrieve_paragraph_mappings(paragraph_cbor_file)
 
-    def cut_pages_to_top_k(self, top_k):
-        for (key, page)  in self.pages.items():
-            page.populate_paragraphs(top_k)
-
-class RunLine(object):
-    def __init__(self, line):
-        splits = line.split()
-        self.qid = splits[0]             # Query ID
-        self.doc_id = splits[2]          # Paragraph ID
-        self.rank = int(splits[3])       # Rank of retrieved paragraph
-        self.score = float(splits[4])    # Score of retrieved paragraph
-        self.run_name = splits[5]        # Name of the run
-
-
-class RunReader(object):
-    """
-    Responsible for reading a single runfile, line-by-line, and storing them in RunLine data classes.
-    """
-    runlines = [] # type: List[RunLine]
-
-    def __init__(self, run_loc, top_k):
-        self.seen_pids = set()  # type: Set[str]
-
-        with open(run_loc) as f:
-            for line in f:
-                run_line = RunLine(line)
-                if (run_line.rank <= top_k):
-                    self.seen_pids.add(run_line.doc_id)
-                    self.runlines.append(RunLine(line))
+    # def cut_pages_to_top_k(self, top_k):
+    #     for (key, page)  in self.pages.items():
+    #         page.populate_paragraphs(top_k)
 
 
 
@@ -419,8 +432,16 @@ def get_parser():
                         , help = "Path to an outline.cbor file"
                         )
 
-    parser.add_argument("run_directory"
-                        , help = "Path to a directory containing runfiles to be parsed."
+    parser.add_argument("--run-directory"
+                        , help = "Path to a directory containing all runfiles to be parsed (uses run name given in trec run files)."
+                        )
+
+    parser.add_argument("--run-file"
+                        , help = "Single runfiles to be parsed."
+                        )
+
+    parser.add_argument("--run-name"
+                        , help = "overwrite run name in run-file with this one."
                         )
 
     parser.add_argument("--include-text-from-paragraph-cbor"
@@ -440,23 +461,27 @@ def get_parser():
 def run_parse() -> None:
     parsed = get_parser()
     outlines_cbor_file = parsed["outline_cbor"]  # type: str
-    run_loc = parsed["run_directory"]  # type: str
+    run_dir = parsed["run_directory"]  # type: Optional[str]
+    run_file = parsed["run_file"]  # type: Optional[str]
+    run_name = parsed["run_name"]  # type: Optional[str]
+
     top_k = int(parsed["k"]) # type: int
     paragraph_cbor_file = parsed["include_text_from_paragraph_cbor"]  # type: Optional[str]
 
 
 
-    run_manager = RunManager(run_loc, outlines_cbor_file, top_k=top_k)
+    run_manager = RunManager(outline_cbor_file = outlines_cbor_file, top_k = top_k, run_dir=run_dir, run_file = run_file, run_name = run_name)
 
     for page in run_manager.pages.values():
         page.populate_paragraphs(top_k)
+        for para in page.paragraphs:
+            run_manager.register_paragraph(para)
+            # Register the paragraph here.
+            # the paragraph text will be set directly into the paragraph object by the RunManager
 
     if (paragraph_cbor_file is not None):
         run_manager.retrieve_text(paragraph_cbor_file)
 
-
-    # for page in run_manager.pages.values():
-    #     assert not page.paragraphs == [], "paragraphs not populated"
 
     def keyfunc(p):
         return p.run_id
@@ -468,10 +493,6 @@ def run_parse() -> None:
         out_name = "jsons/" + run_id + ".json"
         with open(out_name, "w") as f:
             f.write(submission_to_json(pages))
-
-    # for (k,v) in sorted(run_manager.pages.items(), key=lambda x: x[0]):
-    #     v.write_self()
-
 
 if __name__ == '__main__':
     run_parse()
