@@ -422,10 +422,12 @@ def get_parser():
     parser.add_argument("run_directory"
                         , help = "Path to a directory containing runfiles to be parsed."
                         )
-    parser.add_argument("paragraph_cbor"
-                        , help = "Path to either a paragraph corpus .cbor file."
+
+    parser.add_argument("--include-text-from-paragraph-cbor"
+                        , help = "If set, loads paragraph text from the paragraph corpus .cbor file."
                         )
-    parser.add_argument("-n"
+
+    parser.add_argument("-k"
                         , help = "Maximum number of paragraphs to pull from each query in a runfile. (Default is 10)"
                         , default = 10
                         , metavar = "INT"
@@ -437,15 +439,20 @@ def get_parser():
 
 def run_parse() -> None:
     parsed = get_parser()
-    outlines_cbor_file = parsed["outline_cbor"]
-    run_loc = parsed["run_directory"]
-    top_k = int(parsed["n"])
-    paragraph_cbor_file = parsed["paragraph_cbor"]
+    outlines_cbor_file = parsed["outline_cbor"]  # type: str
+    run_loc = parsed["run_directory"]  # type: str
+    top_k = int(parsed["k"]) # type: int
+    paragraph_cbor_file = parsed["include_text_from_paragraph_cbor"]  # type: Optional[str]
+
+
+
     run_manager = RunManager(run_loc, outlines_cbor_file, top_k=top_k)
 
     for page in run_manager.pages.values():
         page.populate_paragraphs(top_k)
-    # run_manager.retrieve_text(paragraph_cbor_file)
+
+    if (paragraph_cbor_file is not None):
+        run_manager.retrieve_text(paragraph_cbor_file)
 
 
     # for page in run_manager.pages.values():
