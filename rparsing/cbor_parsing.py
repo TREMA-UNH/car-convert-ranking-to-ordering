@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 import itertools
 from abc import abstractmethod
-from typing import List, Dict, Set, Iterator, Optional
+from typing import List, Dict, Set, Iterator, Optional, Union
 import argparse
 import os
 import json
@@ -411,7 +411,7 @@ class ParagraphTextCollector(object):
                     if seen == total:
                         break
 
-    def update_paragraph(self, p: Paragraph, pbodies):
+    def update_paragraph(self, p: Paragraph, pbodies:List[Union[ParaLink, ParaText]]):
         """
         :param p: Paragraph that we will be updating
         :param pbodies:
