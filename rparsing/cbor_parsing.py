@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 import itertools
 from abc import abstractmethod
-from typing import List, Dict, Union, Set, Iterator
+from typing import List, Dict, Set, Iterator, Optional
 import argparse
 import os
 import json
@@ -63,7 +63,7 @@ class Paragraph(Jsonable):
 
     def __init__(self, paraId, para_body=None):
         self.para_id = paraId
-        self.para_body = para_body  # type: Union[None, List[ParBody]]
+        self.para_body = para_body  # type: Optional[List[ParBody]]
 
     def add_para_body(self, body):
         if self.para_body is None:
@@ -123,7 +123,7 @@ class Page(Jsonable):
     """
 
 
-    def __init__(self, squid: str, title: str, run_id: Union[str,None], query_facets: List[QueryFacet]) -> None:
+    def __init__(self, squid: str, title: str, run_id: Optional[str], query_facets: List[QueryFacet]) -> None:
         self.query_facets = query_facets  # type: List[QueryFacet]
         self.run_id = run_id
         self.title = title
@@ -136,7 +136,7 @@ class Page(Jsonable):
         self.pids = set() # type: Set[str]
         self.paragraphs = [] # type: List[Paragraph]
         # paragraph origins
-        self.paragraph_origins = None # type: Union[List[ParagraphOrigin], None]
+        self.paragraph_origins = None # type: Optional[List[ParagraphOrigin]]
 
 
 
@@ -213,8 +213,6 @@ class Page(Jsonable):
                         did_change = True
 
         # assert sum (v for v in facet_take_k.values()) > 0, ("no paragraphs for select for page %s" % self.squid)
-        if sum (v for v in facet_take_k.values()) > 0:
-            sys.stderr.print("No paragraphs available to populate page %s" % self.squid)
 
         for facet in self.query_facets:
             facet_id = facet.facet_id
@@ -223,7 +221,9 @@ class Page(Jsonable):
                 self.paragraphs.extend(ps)
 
 
-        if k < top_k:
+        if k == 0:
+            print ("Warning: No paragraphs for population of page %s" % (self.squid))
+        elif k < top_k:
             print ("Warning: page %s could only be populated with %d paragraphs (instead of full budget %d)" % (self.squid, k, top_k))
         self.pids = {p.para_id for p in self.paragraphs}
 
@@ -414,20 +414,22 @@ class ParagraphTextCollector(object):
 
 
 def get_parser():
-    parser = argparse.ArgumentParser()
-    outline_arg = parser.add_argument("outline_cbor")
-    outline_arg.help = "Path to an outline.cbor file"
+    parser = argparse.ArgumentParser("Convert TREC Run files into TREC CAR Y3 submission JSON-lines format")
+    parser.add_argument("outline_cbor"
+                        , help = "Path to an outline.cbor file"
+                        )
 
-    run_directory = parser.add_argument("run_directory")
-    run_directory.help = "Path to a directory containing runfiles to be parsed."
-
-    tmap = parser.add_argument("paragraph_cbor")
-    tmap.help = "Path to either a paragraph corpus .cbor file."
-
-    n_paragraphs = parser.add_argument("-n")
-    n_paragraphs.help = "Maximum number of paragraphs to pull from each query in a runfile. (Default is 10)"
-    n_paragraphs.default = 10
-    n_paragraphs.metavar = "INT"
+    parser.add_argument("run_directory"
+                        , help = "Path to a directory containing runfiles to be parsed."
+                        )
+    parser.add_argument("paragraph_cbor"
+                        , help = "Path to either a paragraph corpus .cbor file."
+                        )
+    parser.add_argument("-n"
+                        , help = "Maximum number of paragraphs to pull from each query in a runfile. (Default is 10)"
+                        , default = 10
+                        , metavar = "INT"
+                        )
 
     parsed = parser.parse_args()
     return parsed.__dict__
@@ -443,7 +445,7 @@ def run_parse() -> None:
 
     for page in run_manager.pages.values():
         page.populate_paragraphs(top_k)
-    run_manager.retrieve_text(paragraph_cbor_file)
+    # run_manager.retrieve_text(paragraph_cbor_file)
 
 
     # for page in run_manager.pages.values():
