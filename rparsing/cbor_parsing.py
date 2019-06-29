@@ -428,9 +428,16 @@ class ParagraphTextCollector(object):
 
 def get_parser():
     parser = argparse.ArgumentParser("Convert TREC Run files into TREC CAR Y3 submission JSON-lines format")
-    parser.add_argument("outline_cbor"
+    parser.add_argument("--outline-cbor"
                         , help = "Path to an outline.cbor file"
+                        , required= True
                         )
+
+    parser.add_argument("--output-directory"
+                        , help = "Output directory (writes on json file per run)"
+                        , required= True
+                        )
+
 
     parser.add_argument("--run-directory"
                         , help = "Path to a directory containing all runfiles to be parsed (uses run name given in trec run files)."
@@ -464,6 +471,7 @@ def run_parse() -> None:
     run_dir = parsed["run_directory"]  # type: Optional[str]
     run_file = parsed["run_file"]  # type: Optional[str]
     run_name = parsed["run_name"]  # type: Optional[str]
+    ouput_dir = parsed["output_directory"]  # type: str
 
     top_k = int(parsed["k"]) # type: int
     paragraph_cbor_file = parsed["include_text_from_paragraph_cbor"]  # type: Optional[str]
@@ -490,7 +498,7 @@ def run_parse() -> None:
         os.mkdir("jsons/")
 
     for run_id, pages in itertools.groupby(sorted(run_manager.pages.values(), key=keyfunc), key=keyfunc):
-        out_name = "jsons/" + run_id + ".json"
+        out_name = ouput_dir+"/" + run_id + ".jsonl"
         with open(out_name, "w") as f:
             f.write(submission_to_json(pages))
 
