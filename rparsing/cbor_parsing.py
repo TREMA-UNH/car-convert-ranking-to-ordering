@@ -236,15 +236,24 @@ def submission_to_json(pages: Iterator[Page]) -> str:
 # ---------------------------- Run Parsing ----------------------------
 
 class RunLine(object):
-    def __init__(self, line:str, run_name: Optional[str] = None) -> None:
+    def __init__(self, qid:str, doc_id:str, rank:int,score:float,run_name:str) -> None:
+        self.qid = qid
+        self.doc_id = doc_id
+        self.rank = rank
+        self.score = score
+        self.run_name = run_name
+
+
+    @staticmethod
+    def from_line(line:str, run_name: Optional[str] = None) -> "RunLine":
         splits = line.split()
-        self.qid = splits[0]             # Query ID
-        self.doc_id = splits[2]          # Paragraph ID
-        self.rank = int(splits[3])       # Rank of retrieved paragraph
-        self.score = float(splits[4])    # Score of retrieved paragraph
-        self.run_name = splits[5]        # Name of the run
-        if run_name is not None:
-            self.run_name = run_name
+        qid = splits[0]             # Query ID
+        doc_id = splits[2]          # Paragraph ID
+        rank = int(splits[3])       # Rank of retrieved paragraph
+        score = float(splits[4])    # Score of retrieved paragraph
+        if run_name is None:
+            run_name = splits[5]        # Name of the run
+        return RunLine(qid=qid, doc_id=doc_id, rank=rank, score=score, run_name = run_name)
 
 
 class RunFile(object):
@@ -265,7 +274,7 @@ class RunFile(object):
     def load_run_file(self,run_file, run_name: Optional[str]):
         with open(run_file) as f:
             for line in f:
-                run_line = RunLine(line, run_name)
+                run_line = RunLine.from_line(line, run_name)
                 if (run_line.rank <= self.top_k):
                     self.runlines.append(run_line)
 
