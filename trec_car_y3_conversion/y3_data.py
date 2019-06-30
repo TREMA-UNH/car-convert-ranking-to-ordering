@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 from abc import abstractmethod
-from typing import List, Dict, Set, Iterator, Optional
+from typing import List, Dict, Set, Iterator, Optional, Any
 import json
 import sys
 
@@ -34,6 +34,32 @@ class Jsonable(object):
     def to_json(self)-> dict:
         pass
 
+    @staticmethod
+    def from_json(dict) -> "Jsonable":
+        raise RuntimeError("Must call from_json of implementing class")
+
+
+def optKey(data:Dict[str,Any], key:str)->Optional[Any]:
+    if str not in data:
+        return None
+    else:
+        return data[key]
+
+def getKey(data:Dict[str,Any], key:str)->Any:
+    if str not in data:
+        raise RuntimeError("Key %s is not in json dictionary %s" % (key, str(data)))
+    else:
+        return data[key]
+
+def getListKey(data:Dict[str,Any], key:str)->List[Any]:
+    if str not in data:
+        raise RuntimeError("Key %s is not in json dictionary %s" % (key, str(data)))
+    if (not isinstance(data[key], list)):
+        raise RuntimeError("Key %s is expected to produce a list, but getting %s from json dictionary %s"%(key, data[key], str(data)))
+    else:
+        return data[key]
+
+
 
 class ParBody(Jsonable):
     """
@@ -52,14 +78,20 @@ class ParBody(Jsonable):
         else:
             return self.__dict__
 
+    @staticmethod
+    def from_json(data:Dict[str,Any])->"ParBody":
+        if optKey(data,"entity") is None:
+            return ParBody(text=getKey(data,'text'))
+        else:
+            return ParBody(text=getKey(data,'text'), entity=getKey(data,'entity'), link_section=optKey(data,'link_section'), entity_name = optKey(data,'entity_name'))
 
 class Paragraph(Jsonable):
     """
     Paragraph container that contains links / paragraph text. Is updated using ParagraphTextcollector class.
     """
 
-    def __init__(self, paraId:str, para_body:Optional[List[ParBody]]=None)->None:
-        self.para_id = paraId
+    def __init__(self, para_id:str, para_body:Optional[List[ParBody]]=None)->None:
+        self.para_id = para_id
         self.para_body = para_body  # type: Optional[List[ParBody]]
 
     def add_para_body(self, body):
@@ -76,6 +108,14 @@ class Paragraph(Jsonable):
             return {"para_id": self.para_id
                     , "para_body" : [ body.to_json() for body in self.para_body]
                     }
+
+    @staticmethod
+    def from_json(data:Dict[str,Any])->"Paragraph":
+        para_body = None
+        if optKey(data,'para_body') is not None:
+            para_body = [ParBody.from_json(d) for d in getListKey(data,'para_body')]
+
+        return Paragraph(para_id=getKey(data,'para_id'), para_body=para_body)
 
 
 
@@ -94,6 +134,10 @@ class QueryFacet(Jsonable):
         return {"heading": self.heading
                 , "heading_id": self.facet_id
                 }
+
+    @staticmethod
+    def from_json(data:Dict[str,Any])->"QueryFacet":
+        return QueryFacet(facet_id=getKey(data, 'heading_id'), heading=getKey(data, 'heading'))
 
 class ParagraphOrigin(Jsonable):
     """
@@ -114,26 +158,36 @@ class ParagraphOrigin(Jsonable):
     def to_json(self)-> dict:
         return self.__dict__
 
+    @staticmethod
+    def from_json(data:Dict[str,Any])->"ParagraphOrigin":
+        return ParagraphOrigin(para_id=getKey(data, 'para_id'), section_path=getKey(data, 'section_path'), rank_score = data['rank_score'], rank = data['rank'])
+
+
+
 class Page(Jsonable):
     """
     A page used for annotations.
+
     """
 
-
-    def __init__(self, squid: str, title: str, run_id: Optional[str], query_facets: List[QueryFacet]) -> None:
+    def __init__(self, squid: str, title: str, run_id: Optional[str], query_facets: List[QueryFacet]
+                 , facet_paragraphs: Optional[Dict[str, List[Paragraph]]] =  None    # None means None -- initialize with {} when needed
+                 , paragraph_origins: Optional[List[ParagraphOrigin]] = None   # None means actually None here
+                 , pids: Optional[Set[str]] = None                             # None means initialize with {}
+                 , paragraphs: List[Paragraph] = None) -> None:                # None means initialize with []
         self.query_facets = query_facets  # type: List[QueryFacet]
-        self.run_id = run_id
+        self.run_id = run_id  # set to None for page prototypes
         self.title = title
         self.squid = squid
 
         # paragraphs retrieved per facet
-        self.facet_paragraphs = {} # type: Dict[str,List[Paragraph]]
+        self.facet_paragraphs = facet_paragraphs  # type: Optional[Dict[str,List[Paragraph]]]
 
         # paragraphs get loaded later
-        self.pids = set() # type: Set[str]
-        self.paragraphs = [] # type: List[Paragraph]
+        self.pids = set() if pids is None else pids # type: Set[str]
+        self.paragraphs = [] if paragraphs is None else paragraphs # type: List[Paragraph]
         # paragraph origins
-        self.paragraph_origins = None # type: Optional[List[ParagraphOrigin]]
+        self.paragraph_origins = paragraph_origins # type: Optional[List[ParagraphOrigin]]
 
 
 
@@ -148,27 +202,51 @@ class Page(Jsonable):
 
 
     def to_json(self):
+        if not self.paragraphs:
+            raise RuntimeError("Can only serialize populated pages to JSON, but page %s has no paragraphs." % self.squid)
+
+
         dictionary =  { "title": self.title
                 , "squid": self.squid
                 , "run_id": self.run_id
-                , "query_facets": [facet.to_json() for facet in self.query_facets]
                 , "paragraphs": [para.to_json() for  para in self.paragraphs]
                 }
-        if self.paragraph_origins is None:
-            return dictionary
-        else:
+        if self.query_facets:
+            dictionary["query_facets"] = [facet.to_json() for facet in self.query_facets]
+
+        if self.paragraph_origins:
             dictionary["paragraph_origins"] = [origin.to_json() for origin in self.paragraph_origins]
-            return dictionary
+
+        return dictionary
+
+    @staticmethod
+    def from_json(data:Dict[str,Any])->"Page":
+        paragraphs = [Paragraph.from_json(d) for d in getListKey(data, 'paragraphs')]
+        query_facets = [QueryFacet.from_json(d) for d in getListKey(data, 'query_facets')]
+        paragraph_origins = [ParagraphOrigin.from_json(d) for d in getListKey(data, 'paragraph_origins')]
+        return Page(squid=getKey(data,'squid')
+                    , title=getKey(data, 'title')
+                    , run_id=optKey(data, 'run_id')
+                    , query_facets = query_facets
+                    , paragraphs = paragraphs
+                    , paragraph_origins = paragraph_origins
+                    , pids = {p.para_id for p in paragraphs}
+                    , facet_paragraphs = None
+                    )
+
+
 
     def add_facet_paragraph(self, qid:str, paragraph: Paragraph)->None:
         assert qid.startswith(self.squid), ( "Query id %s does not belong to this page %s"  % (qid, self.squid))
+        if self.facet_paragraphs is None:
+            self.facet_paragraphs = dict()
 
         if qid not in self.facet_paragraphs:
             self.facet_paragraphs[qid]=[]
         self.facet_paragraphs[qid].append(paragraph)
 
 
-    def populate_paragraphs(self, top_k):
+    def populate_paragraphs(self, top_k:int)->None:
         """
         In a round-robin fashion, select the top ceil(top_k/num_facets) paragraphs from each ranking, as set through :func:`add_facet_paragraph`.
 
@@ -185,9 +263,15 @@ class Page(Jsonable):
         by concatenating the selected paragaphs from self.facet_paragraphs in the order in which facets appear in the
         outline.
 
+        This function can only be called when self.paragraphs are not set, but facet_paragraphs are available.
+
         :param top_k:
         :return:
         """
+        if self.paragraphs:
+            raise RuntimeError("Page %s is already populated with %d paragraphs. Cannot be populated twice!. Did you mean to read the paragraphs or pids field?" % (self.squid, len(self.paragraphs)))
+        if not self.facet_paragraphs:
+            raise RuntimeError("No facet_paragraphs set for page %s, cannot populate paragraphs. Did you mean to read the paragraphs or pids field?" % self.squid)
 
         facetKeys = self.facet_paragraphs.keys()
         for fk in facetKeys:
@@ -223,7 +307,7 @@ class Page(Jsonable):
         elif k < top_k:
             print ("Warning: page %s could only be populated with %d paragraphs (instead of full budget %d)" % (self.squid, k, top_k), file=sys.stderr)
         self.pids = {p.para_id for p in self.paragraphs}
-
+        self.query_facets = None # indicate that page is already populated
 
 def submission_to_json(pages: Iterator[Page]) -> str:
     return "\n".join([json.dumps(page.to_json()) for page in pages])

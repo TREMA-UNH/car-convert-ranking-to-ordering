@@ -59,7 +59,7 @@ class RunManager(object):
             assert run_line.qid.startswith(page.squid), "fetched wrong page"
 
             # Add paragraph and register this for later (when we retrieve text / links)
-            paragraph = Paragraph(paraId=run_line.doc_id)  # create empty paragraph, contents will be loaded later.
+            paragraph = Paragraph(para_id=run_line.doc_id)  # create empty paragraph, contents will be loaded later.
             page.add_facet_paragraph(run_line.qid, paragraph)
             assert run_line.qid.startswith(page.squid), "adding paragraphs to wrong page"
             # self.register_paragraph(paragraph)
