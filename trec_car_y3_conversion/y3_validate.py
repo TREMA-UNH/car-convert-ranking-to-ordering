@@ -81,7 +81,7 @@ def run_parse() -> None:
         validationErrors = dict() # type: Dict[str, List[ValidationError]]
         jsonErrors = [] # type: List[JsonParsingError]
         found_squids = {} # type: Dict[str, Page]
-        required_squids = page_prototypes # type: Dict[str, Page]
+        required_squids = {page.squid: page for page in page_prototypes.values()} # type: Dict[str, Page]
 
 
         with open(json_loc,'r') as f:
@@ -93,6 +93,7 @@ def run_parse() -> None:
                     errs = []
                     errs.extend(page.validate_minimal_spec())
                     errs.extend(page.validate_minimal_y3_spec(top_k=top_k, maxlen_run_id=8))
+                    errs.extend(page.validate_paragraph_y3_origins(top_k=top_k))
                     if errs:
                         validationErrors[page.squid] = errs
                 except JsonParsingError as ex:
@@ -106,7 +107,7 @@ def run_parse() -> None:
         for squid in found_squids.keys() - (required_squids.keys()):
             if squid not in errs:
                 validationErrors[squid] = []
-            validationErrors[squid].append(ValidationError(message = "Page with %s not in the outline file and therefore must not be submitted" % squid, data = found_squids[squid]))
+            validationErrors[squid].append(ValidationError(message = "Page with %s not in the outline file and therefore must not be submitted." % squid, data = found_squids[squid]))
 
         for squid in required_squids.keys() - (found_squids.keys()):
             if squid not in errs:
@@ -118,23 +119,18 @@ def run_parse() -> None:
 
 
         for err in jsonErrors:
-            print("\n\nFound JSON Format issues for squid %s:" % err.get_squid(), file = sys.stderr)
+            print("\n\nFound JSON Format issues for page %s:" % err.get_squid(), file = sys.stderr)
 
             print(err.get_msg(), file=sys.stderr)
             if print_json:
                 print(err.problematic_json(), file = sys.stderr)
 
         for (squid, errs) in validationErrors.items():
-            print("\n\nValidation issues for squid %s:" % squid, file = sys.stderr)
+            print("\n\nValidation issues for page %s:" % squid, file = sys.stderr)
             for err in errs:
                 print(err.get_msg(), file = sys.stderr)
             if print_json:
                 print(errs[0].problematic_json(), file = sys.stderr)
-
-
-
-
-
 
 
     if json_dir:
@@ -143,10 +139,6 @@ def run_parse() -> None:
 
     if json_file:
         validate_y3(json_file)
-
-
-
-                # page.validate_page_content(top_k, paragraph_cbor_file)
 
 
 if __name__ == '__main__':
