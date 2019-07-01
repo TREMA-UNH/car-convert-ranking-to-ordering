@@ -68,14 +68,28 @@ def run_parse() -> None:
     top_k = int(parsed["k"]) # type: int
     # paragraph_cbor_file = parsed["check_text_from_paragraph_cbor"]  # type: Optional[str]
 
-    def validate_y3(json_loc):
+    page_prototypes = {} # type: Dict[str, Page]
+    with open(outlines_cbor_file, 'rb') as f:
+        for page in OutlineReader.initialize_pages(f):
+            for facet in page.query_facets:
+                page_prototypes[facet.facet_id] = page
 
+
+
+
+    def validate_y3(json_loc):
         validationErrors = dict() # type: Dict[str, List[ValidationError]]
         jsonErrors = [] # type: List[JsonParsingError]
+        found_squids = {} # type: Dict[str, Page]
+        required_squids = page_prototypes # type: Dict[str, Page]
+
+
         with open(json_loc,'r') as f:
             for line in f:
                 try:
                     page = Page.from_json(json.loads(line))
+                    found_squids[page.squid] = page
+
                     errs = []
                     errs.extend(page.validate_minimal_spec())
                     errs.extend(page.validate_minimal_y3_spec(top_k=top_k, maxlen_run_id=8))
@@ -88,6 +102,20 @@ def run_parse() -> None:
                 except ValidationError as ex:
                     if(fail_on_first):
                         raise ex
+
+        for squid in found_squids.keys() - (required_squids.keys()):
+            if squid not in errs:
+                validationErrors[squid] = []
+            validationErrors[squid].append(ValidationError(message = "Page with %s not in the outline file and therefore must not be submitted" % squid, data = found_squids[squid]))
+
+        for squid in required_squids.keys() - (found_squids.keys()):
+            if squid not in errs:
+                validationErrors[squid] = []
+            validationErrors[squid].append(ValidationError(message = "Page with %s is missing, but is contained in the outline file. Page with this squid must be submitted" % squid, data = required_squids[squid]))
+
+
+
+
 
         for err in jsonErrors:
             print("\n\nFound JSON Format issues for squid %s:" % err.get_squid(), file = sys.stderr)
@@ -102,6 +130,7 @@ def run_parse() -> None:
                 print(err.get_msg(), file = sys.stderr)
             if print_json:
                 print(errs[0].problematic_json(), file = sys.stderr)
+
 
 
 
