@@ -219,7 +219,7 @@ class ParagraphOrigin(Jsonable):
 
 
 def safe_group_by(pairs:Iterator[Tuple[str,Any]])->Dict[str,List[Any]]:
-    res = {}
+    res = {} # type: Dict[str,List[Any]]
     for (k,v) in pairs:
         if k  not in res:
             res[k] = []
@@ -425,21 +425,21 @@ class Page(Jsonable):
                         addValidationError("Paragraphs %s for page %s has invalid ParaBody. Paragraph bodies must contain a non-empty text field (alternatively paragraph bodies can be omitted)."% (paragraph.para_id, self.squid))
 
 
-        for paragraph in self.paragraph_origins:
-            if Page.fail_str(paragraph.para_id):
-                addValidationError("Paragraph id %s in paragraph_origins of page %s of invalid type. Must be non-empty string."% (paragraph.para_id, self.squid))
+        for origin in self.paragraph_origins:
+            if Page.fail_str(origin.para_id):
+                addValidationError("Paragraph id %s in origin_origins of page %s of invalid type. Must be non-empty string."% (origin.para_id, self.squid))
 
-            if Page.fail_paragraph_id(paragraph.para_id):
-                addValidationError("Paragraph id %s in paragraph_origins of page %s of invalid type. Must contain 40 hexadecimal characters."% (paragraph.para_id, self.squid))
+            if Page.fail_paragraph_id(origin.para_id):
+                addValidationError("Paragraph id %s in origin_origins of page %s of invalid type. Must contain 40 hexadecimal characters."% (origin.para_id, self.squid))
 
-            if Page.fail_str(paragraph.section_path):
-                addValidationError("Section path %s in paragraph_origins of page %s of invalid type. Must be non-empty string."% (paragraph.section_path, self.squid))
+            if Page.fail_str(origin.section_path):
+                addValidationError("Section path %s in origin_origins of page %s of invalid type. Must be non-empty string."% (origin.section_path, self.squid))
 
-            if Page.fail_opt_int(paragraph.rank):
-                addValidationError("Rank %d in paragraph_origins of page %s of invalid type. Must be non-negative integer or omitted."% (paragraph.rank, self.squid))
+            if Page.fail_opt_int(origin.rank):
+                addValidationError("Rank %d in origin_origins of page %s of invalid type. Must be non-negative integer or omitted."% (origin.rank, self.squid))
 
-            if Page.fail_float(paragraph.rank_score):
-                addValidationError("Rank score %f in paragraph_origins of page %s of invalid type. Must be float."% (paragraph.rank_score, self.squid))
+            if Page.fail_float(origin.rank_score):
+                addValidationError("Rank score %f in origin_origins of page %s of invalid type. Must be float."% (origin.rank_score, self.squid))
 
         return errors
 
@@ -486,7 +486,7 @@ class Page(Jsonable):
                 addValidationError("Section path %s in is not in TREC CAR Y3 format. Must start with \'tqa2:\'." % paragraph.section_path)
 
             if "%20" in paragraph.section_path:
-                addValidationError("Section path %s in is not in TREC CAR Y3 format.  is not in TREC CAR Y3 format. Must not contain \'%s\' symbols." % paragraph.section_path)
+                addValidationError("Section path %s in is not in TREC CAR Y3 format.  is not in TREC CAR Y3 format. Must not contain \'%s\' symbols." % (paragraph.section_path, "%20"))
 
         found_section_paths = {p.section_path for p in self.paragraph_origins}
         required_section_paths = {qf.facet_id for qf in self.query_facets}
@@ -500,22 +500,22 @@ class Page(Jsonable):
 
         for (spath, paras) in safe_group_by((p.section_path,p) for p in self.paragraph_origins).items():
             if len(paras) > top_k:
-                addValidationError("Paragraph_origins of section_path %s of page %s have more than %d entries. Must include not more than top_k=%d entries." % (spath, self.squid, len(paras), top_k))
+                addValidationError("Paragraph_origins of section_path %s of page %s has %d entries, but must not include not than top_k=%d entries." % (spath, self.squid, len(paras), top_k))
 
             if len(paras) < top_k:
-                addValidationError("Paragraph_origins of section_path %s of page %s have less than %d entries. Should include not exactly top_k=%d entries." % (spath, self.squid, len(paras), top_k))
+                addValidationError("Paragraph_origins of section_path %s of page %s has %d entries, but should include exactly top_k=%d entries." % (spath, self.squid, len(paras), top_k))
 
 
         # Rank information is optional. If given perform these checks.
         if any(p.rank is not None for p in self.paragraph_origins):
             if( not all (p.rank is not None for p in self.paragraph_origins)):
-                addValidationError("Rank information in paragraph_origins for page %s is given for some entries, but not all entries. Must either be omitted or provided for all paragraph_origins."%(self.squid))
+                addValidationError("paragraph_origins for page %s have some entries, but not all entries. Must either be omitted or provided for all paragraph_origins."%(self.squid))
 
 
             for spath in found_section_paths:
                 origins_for_spath = [p for p in self.paragraph_origins if p.section_path == spath]
                 sort_by_score = sorted(origins_for_spath.copy(), key= lambda p: - p.rank_score)
-                sort_by_rank = sorted(origins_for_spath.copy(), key= lambda p: p.rank)
+                sort_by_rank = sorted(origins_for_spath.copy(), key= lambda p: -1 if p.rank is None else p.rank)
 
                 skip_rest=False
                 for (p1,p2) in zip(sort_by_score, sort_by_rank):

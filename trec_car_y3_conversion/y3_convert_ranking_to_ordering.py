@@ -175,8 +175,8 @@ def get_parser():
                         )
 
     parser.add_argument("-k"
-                        , help = "Maximum number of paragraphs to pull from each query in a runfile. (Default is 10)"
-                        , default = 10
+                        , help = "Maximum number of paragraphs to pull from each query in a runfile. (Default is 25)"
+                        , default = 25
                         , metavar = "INT"
                         )
 

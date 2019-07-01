@@ -33,8 +33,8 @@ def get_parser():
     #                     )
 
     parser.add_argument("-k"
-                        , help = "Maximum number of paragraphs to pull from each query in a runfile. (Default is 10)"
-                        , default = 10
+                        , help = "Maximum number of paragraphs to pull from each query in a runfile. (Default is 25)"
+                        , default = 25
                         , metavar = "INT"
                         )
 
@@ -112,11 +112,12 @@ def run_parse() -> None:
         for squid in required_squids.keys() - (found_squids.keys()):
             if squid not in errs:
                 validationErrors[squid] = []
-            validationErrors[squid].append(ValidationError(message = "Page with %s is missing, but is contained in the outline file. Page with this squid must be submitted" % squid, data = required_squids[squid]))
+            validationErrors[squid].append(ValidationError(message = "Page with %s is missing, but is contained in the outline file. Page with this squid must be submitted." % squid, data = required_squids[squid]))
 
 
 
-
+        if jsonErrors or validationErrors:
+            print("Validation errors for input file \'%s\'" % os.path.basename(json_loc), file=sys.stderr)
 
         for err in jsonErrors:
             print("\n\nFound JSON Format issues for page %s:" % err.get_squid(), file = sys.stderr)
