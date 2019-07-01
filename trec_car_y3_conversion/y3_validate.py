@@ -78,7 +78,7 @@ def run_parse() -> None:
 
 
     def validate_y3(json_loc):
-        validationErrors = dict() # type: Dict[str, List[ValidationError]]
+        validationErrors = dict() # type: Dict[str, List[Union[ValidationError, ValidationWarning]]]
         jsonErrors = [] # type: List[JsonParsingError]
         found_squids = {} # type: Dict[str, Page]
         required_squids = {page.squid: page for page in page_prototypes.values()} # type: Dict[str, Page]
@@ -96,6 +96,10 @@ def run_parse() -> None:
                     errs.extend(page.validate_paragraph_y3_origins(top_k=top_k))
                     if errs:
                         validationErrors[page.squid] = errs
+                    real_errors = [err for err in errs if isinstance(err, ValidationError)]
+                    if (fail_on_first and real_errors):
+                        raise real_errors[0]
+
                 except JsonParsingError as ex:
                     if(fail_on_first):
                         raise ex

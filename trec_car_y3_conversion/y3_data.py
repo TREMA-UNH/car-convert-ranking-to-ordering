@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 from abc import abstractmethod
-from typing import List, Dict, Set, Iterator, Optional, Any, TextIO, Tuple
+from typing import List, Dict, Set, Iterator, Optional, Any, TextIO, Tuple, Union
 import json
 import sys
 import pprint
@@ -44,8 +44,8 @@ class Jsonable(object):
 class JsonParsingError(BaseException):
     """ JSON parsing failure. """
     def __init__(self, message, data):
-        super(JsonParsingError, self).__init__(message + "Problematic JSON:\n"+ (pprint.pformat(data, indent = 4, width = 80)))
-        self.message = message
+        self.message = "ERROR: "+message
+        super(JsonParsingError, self).__init__(self.message + "Problematic JSON:\n"+ (pprint.pformat(data, indent = 4, width = 80)))
         self.data = data
 
     def problematic_json(self):
@@ -66,8 +66,25 @@ class JsonParsingError(BaseException):
 class ValidationError(BaseException):
     """ Data validation failed. """
     def __init__(self, message:str, data:"Page")->None:
-        super(ValidationError, self).__init__(message+ "Problematic JSON:\n"+ (pprint.pformat(data, indent = 4, width = 80)))
-        self.message = message
+        self.message = "ERROR: " +message
+        super(ValidationError, self).__init__(self.message+ "Problematic JSON:\n"+ (pprint.pformat(data.to_json(), indent = 4, width = 80)))
+        self.data = data
+        self.squid = data.squid
+
+    def get_msg(self):
+        return self.message
+
+    def problematic_json(self):
+        return "Problematic JSON:\n"+ (pprint.pformat(self.data.to_json(), indent = 4, width = 80))
+
+    def get_squid(self):
+        return self.squid
+
+class ValidationWarning(BaseException):
+    """ Data validation failed. """
+    def __init__(self, message:str, data:"Page")->None:
+        self.message = "WARNING: "+message
+        super(ValidationWarning, self).__init__(self.message+ "Problematic JSON:\n"+ (pprint.pformat(data, indent = 4, width = 80)))
         self.data = data
         self.squid = data.squid
 
@@ -397,9 +414,9 @@ class Page(Jsonable):
 
     def validate_minimal_spec(self)->List[ValidationError]:
         errors = []
-        def addValidationError(message:str):
+        def addValidationError( message:str):
             errors.append(ValidationError(message=message, data= self))
-            
+
         
         if Page.fail_str(self.squid):
             addValidationError("Page squid %s (aka page id) of invalid type. Must be non-empty string."% self.squid)
@@ -427,26 +444,29 @@ class Page(Jsonable):
 
         for origin in self.paragraph_origins:
             if Page.fail_str(origin.para_id):
-                addValidationError("Paragraph id %s in origin_origins of page %s of invalid type. Must be non-empty string."% (origin.para_id, self.squid))
+                addValidationError("Paragraph id %s in paragraph_origins of page %s of invalid type. Must be non-empty string."% (origin.para_id, self.squid))
 
             if Page.fail_paragraph_id(origin.para_id):
-                addValidationError("Paragraph id %s in origin_origins of page %s of invalid type. Must contain 40 hexadecimal characters."% (origin.para_id, self.squid))
+                addValidationError("Paragraph id %s in paragraph_origins of page %s of invalid type. Must contain 40 hexadecimal characters."% (origin.para_id, self.squid))
 
             if Page.fail_str(origin.section_path):
-                addValidationError("Section path %s in origin_origins of page %s of invalid type. Must be non-empty string."% (origin.section_path, self.squid))
+                addValidationError("Section path %s in paragraph_origins of page %s of invalid type. Must be non-empty string."% (origin.section_path, self.squid))
 
             if Page.fail_opt_int(origin.rank):
-                addValidationError("Rank %d in origin_origins of page %s of invalid type. Must be non-negative integer or omitted."% (origin.rank, self.squid))
+                addValidationError("Rank %d in paragraph_origins of page %s of invalid type. Must be non-negative integer or omitted."% (origin.rank, self.squid))
 
             if Page.fail_float(origin.rank_score):
-                addValidationError("Rank score %f in origin_origins of page %s of invalid type. Must be float."% (origin.rank_score, self.squid))
+                addValidationError("Rank score %f in paragraph_origins of page %s of invalid type. Must be float."% (origin.rank_score, self.squid))
 
         return errors
 
-    def validate_minimal_y3_spec(self, top_k:int, maxlen_run_id:int)->List[ValidationError]:
+    def validate_minimal_y3_spec(self, top_k:int, maxlen_run_id:int)->List[Union[ValidationError, ValidationWarning]]:
         errors = []
-        def addValidationError(message:str):
-            errors.append(ValidationError(message=message, data= self))
+        def addValidationError(message:str, is_warning:bool=False):
+            if is_warning:
+                errors.append(ValidationWarning(message=message, data= self))
+            else:
+                errors.append(ValidationError(message=message, data= self))
 
         if not self.squid.startswith("tqa2:"):
             addValidationError("Page squid %s (aka page id) is not in TREC CAR Y3 format. Must start with \'tqa2:\'." % self.squid)
@@ -461,13 +481,16 @@ class Page(Jsonable):
             addValidationError("Page %s has too many paragraphs (%d); only top_k = %d paragraphs allowed per page." % (self.squid, len(self.paragraphs), top_k))
 
         if len(self.paragraphs) < top_k:
-            addValidationError("Page %s has too few paragraphs (%d); page should contain top_k = %d paragraphs per page." % (self.squid, len(self.paragraphs), top_k))
+            addValidationError("Page %s has too few paragraphs (%d); page should contain top_k = %d paragraphs per page." % (self.squid, len(self.paragraphs), top_k), is_warning=True)
         return errors
 
-    def validate_paragraph_y3_origins(self, top_k:int)->List[ValidationError]:
+    def validate_paragraph_y3_origins(self, top_k:int)->List[Union[ValidationError, ValidationWarning]]:
         errors = []
-        def addValidationError(message:str):
-            errors.append(ValidationError(message=message, data= self))
+        def addValidationError(message:str, is_warning:bool=False):
+            if is_warning:
+                errors.append(ValidationWarning(message=message, data= self))
+            else:
+                errors.append(ValidationError(message=message, data= self))
 
         def pretty2(sort_by_score:List[ParagraphOrigin],sort_by_rank:List[ParagraphOrigin])->str:
             lines = ["%s\t%s"%(str(p1.to_json()), str(p2.to_json()))  for (p1,p2) in zip(sort_by_score, sort_by_rank)]
@@ -479,7 +502,7 @@ class Page(Jsonable):
 
 
         if not self.paragraph_origins:
-            addValidationError("No paragraph origins defined for page %s"%self.squid)
+            addValidationError("No paragraph origins defined for page %s"%self.squid, is_warning=True)
 
         for paragraph in self.paragraph_origins:
             if not paragraph.section_path.startswith("tqa2:"):
@@ -494,7 +517,7 @@ class Page(Jsonable):
             addValidationError("Found section_path %s in paragraph_origins that does not belong for a section path of page %s. Must not be included. " % (spath, self.squid))
 
         for spath in required_section_paths - found_section_paths:
-            addValidationError("Section_path %s of page %s not found in paragraph_origins. Rankings for all headings must be included. " % (spath, self.squid))
+            addValidationError("Section_path %s of page %s not found in paragraph_origins. Rankings for all headings must be included. " % (spath, self.squid), is_warning= True)
 
 
 
@@ -503,13 +526,13 @@ class Page(Jsonable):
                 addValidationError("Paragraph_origins of section_path %s of page %s has %d entries, but must not include not than top_k=%d entries." % (spath, self.squid, len(paras), top_k))
 
             if len(paras) < top_k:
-                addValidationError("Paragraph_origins of section_path %s of page %s has %d entries, but should include exactly top_k=%d entries." % (spath, self.squid, len(paras), top_k))
+                addValidationError("Paragraph_origins of section_path %s of page %s has %d entries, but should include exactly top_k=%d entries." % (spath, self.squid, len(paras), top_k), is_warning=True)
 
 
         # Rank information is optional. If given perform these checks.
         if any(p.rank is not None for p in self.paragraph_origins):
             if( not all (p.rank is not None for p in self.paragraph_origins)):
-                addValidationError("paragraph_origins for page %s have some entries, but not all entries. Must either be omitted or provided for all paragraph_origins."%(self.squid))
+                addValidationError("paragraph_origins for page %s have some entries, but not all entries. Must either be omitted or provided for all paragraph_origins."%(self.squid), is_warning= True)
 
 
             for spath in found_section_paths:
