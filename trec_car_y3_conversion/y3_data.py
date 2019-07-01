@@ -1,8 +1,9 @@
 #!/usr/bin/python3
 from abc import abstractmethod
-from typing import List, Dict, Set, Iterator, Optional, Any
+from typing import List, Dict, Set, Iterator, Optional, Any, TextIO
 import json
 import sys
+import pprint
 
 
 
@@ -15,9 +16,10 @@ class OutlineReader(object):
     @staticmethod
     def outline_to_page(outline):
         # todo adjust for hierarchical sections using outline.flat_headings_list
-        pageFacets = [QueryFacet(facet_id=outline.page_id+"/"+section.headingId, heading=section.heading) for section in outline.child_sections]
+        query_facets = [QueryFacet(facet_id=outline.page_id+"/"+section.headingId, heading=section.heading) for section in outline.child_sections]
 
-        return Page(squid = outline.page_id, title=outline.page_name, run_id=None, query_facets = pageFacets)
+        return Page(squid = outline.page_id, title=outline.page_name, run_id=None, query_facets = query_facets)
+
 
 
     @staticmethod
@@ -39,26 +41,71 @@ class Jsonable(object):
         raise RuntimeError("Must call from_json of implementing class")
 
 
+class JsonParsingError(BaseException):
+    """ JSON parsing failure. """
+    def __init__(self, message, data):
+        super(JsonParsingError, self).__init__(message + "Problematic JSON:\n"+ (pprint.pformat(data, indent = 4, width = 80)))
+        self.message = message
+        self.data = data
+
+    def problematic_json(self):
+        return "Problematic JSON:\n"+ (pprint.pformat(self.data, indent = 4, width = 80))
+
+    def get_msg(self):
+        return self.message
+
+    def get_squid(self):
+        if 'squid' in self.data:
+            return self.data['squid']
+        else:
+            return "???"
+
+
+
+
+class ValidationError(BaseException):
+    """ Data validation failed. """
+    def __init__(self, message:str, data:"Page")->None:
+        super(ValidationError, self).__init__(message+ "Problematic JSON:\n"+ (pprint.pformat(data, indent = 4, width = 80)))
+        self.message = message
+        self.data = data
+        self.squid = data.squid
+
+    def get_msg(self):
+        return self.message
+
+    def problematic_json(self):
+        return "Problematic JSON:\n"+ (pprint.pformat(self.data.to_json(), indent = 4, width = 80))
+
+    def get_squid(self):
+        return self.squid
+
+
 def optKey(data:Dict[str,Any], key:str)->Optional[Any]:
-    if str not in data:
+    if key not in data:
         return None
     else:
         return data[key]
 
 def getKey(data:Dict[str,Any], key:str)->Any:
-    if str not in data:
-        raise RuntimeError("Key %s is not in json dictionary %s" % (key, str(data)))
+    if key not in data:
+        raise JsonParsingError("Key \'%s\' is not in json dictionary. " % key, data)
     else:
         return data[key]
 
 def getListKey(data:Dict[str,Any], key:str)->List[Any]:
-    if str not in data:
-        raise RuntimeError("Key %s is not in json dictionary %s" % (key, str(data)))
+    if key not in data:
+        raise JsonParsingError("Key \'%s\' is not in json dictionary. " % key, data)
     if (not isinstance(data[key], list)):
-        raise RuntimeError("Key %s is expected to produce a list, but getting %s from json dictionary %s"%(key, data[key], str(data)))
+        raise JsonParsingError("Key \'%s\' is expected to produce a list, but getting %s. "%(key, data[key]), data)
     else:
         return data[key]
 
+# def getOptListKey(data:Dict[str,Any], key:str)->Optional[List[Any]]:
+#     if key in data:
+#         return getListKey(data,key)
+#     else:
+#         return None
 
 
 class ParBody(Jsonable):
@@ -163,7 +210,6 @@ class ParagraphOrigin(Jsonable):
         return ParagraphOrigin(para_id=getKey(data, 'para_id'), section_path=getKey(data, 'section_path'), rank_score = data['rank_score'], rank = data['rank'])
 
 
-
 class Page(Jsonable):
     """
     A page used for annotations.
@@ -197,8 +243,8 @@ class Page(Jsonable):
         self.paragraph_origins.append(origin)
 
 
-    def copy_prototype(self,run_id):
-        return Page(self.squid, self.title, run_id, self.query_facets)
+    def copy_prototype(self,run_id:str)->"Page":
+        return Page(squid = self.squid, title = self.title, run_id = run_id, query_facets = self.query_facets)
 
 
     def to_json(self):
@@ -222,8 +268,8 @@ class Page(Jsonable):
     @staticmethod
     def from_json(data:Dict[str,Any])->"Page":
         paragraphs = [Paragraph.from_json(d) for d in getListKey(data, 'paragraphs')]
-        query_facets = [QueryFacet.from_json(d) for d in getListKey(data, 'query_facets')]
-        paragraph_origins = [ParagraphOrigin.from_json(d) for d in getListKey(data, 'paragraph_origins')]
+        query_facets = [QueryFacet.from_json(d) for d in getListKey(data, 'query_facets')] if 'query_facets' in data else None
+        paragraph_origins = [ParagraphOrigin.from_json(d) for d in getListKey(data, 'paragraph_origins')] if 'paragraph_origins' in data else None
         return Page(squid=getKey(data,'squid')
                     , title=getKey(data, 'title')
                     , run_id=optKey(data, 'run_id')
@@ -270,7 +316,7 @@ class Page(Jsonable):
         """
         if self.paragraphs:
             raise RuntimeError("Page %s is already populated with %d paragraphs. Cannot be populated twice!. Did you mean to read the paragraphs or pids field?" % (self.squid, len(self.paragraphs)))
-        if not self.facet_paragraphs:
+        if not self.facet_paragraphs :
             raise RuntimeError("No facet_paragraphs set for page %s, cannot populate paragraphs. Did you mean to read the paragraphs or pids field?" % self.squid)
 
         facetKeys = self.facet_paragraphs.keys()
@@ -307,10 +353,76 @@ class Page(Jsonable):
         elif k < top_k:
             print ("Warning: page %s could only be populated with %d paragraphs (instead of full budget %d)" % (self.squid, k, top_k), file=sys.stderr)
         self.pids = {p.para_id for p in self.paragraphs}
-        self.query_facets = None # indicate that page is already populated
+        self.facet_paragraphs = None # indicate that page is already populated
+
+
+
+
+
+    @staticmethod
+    def fail_str(x):
+        return not x or not isinstance(x, str) or len(x) == 0
+
+    def validate_minimal_spec(self, print_offensive_json:bool=False)->List[ValidationError]:
+        errors = []
+        def addValidationError(message:str):
+            errors.append(ValidationError(message=message, data= self))
+            
+        
+        if Page.fail_str(self.squid):
+            addValidationError("Page squid %s (aka page id) of invalid type. Must be non-empty string."% self.squid)
+        if Page.fail_str(self.run_id):
+            addValidationError("Run id %s for page %s of invalid type. Must be non-empty string."% (self.run_id, self.squid))
+        if not self.paragraphs:
+            addValidationError("Paragraphs for page %s are empty. Must be non-empty list of paragraphs."% (self.squid))
+
+        for paragraph in self.paragraphs:
+            if not isinstance(paragraph, Paragraph):
+                addValidationError("Paragraph of invalid type on page %s. Must be of type Paragraph."% (self.squid))
+            if Page.fail_str(paragraph.para_id):
+                addValidationError("Paragraph id %s for page %s of invalid type. Must be non-empty string."% (paragraph.para_id, self.squid))
+
+            if paragraph.para_body:
+                if paragraph.para_body == []:
+                    addValidationError("Paragraph id %s for page %s has empty para_body.  Must be either removed from JSON or non-empty list."% (paragraph.para_id, self.squid))
+
+                for pbody in paragraph.para_body:
+                    if Page.fail_str(pbody.text):
+                        addValidationError("Paragraphs %s for page %s has invalid ParaBody. Paragraph bodies must contain a non-empty text field (alternatively paragraph bodies can be omitted)."% (paragraph.para_id, self.squid))
+
+        return errors
+
+    def validate_minimal_y3_spec(self, top_k:int, maxlen_run_id:int)->List[ValidationError]:
+        errors = []
+        def addValidationError(message:str):
+            errors.append(ValidationError(message=message, data= self))
+
+        if not self.squid.startswith("tqa2:"):
+            addValidationError("Page squid %s (aka page id) is not in TREC CAR Y3 format. Must start with \'tqa2:\'." % self.squid)
+
+        if "%20" in self.squid:
+            addValidationError("Page squid %s (aka page id) is not in TREC CAR Y3 format. Must not contain \'%s\' symbols." % (self.squid, "%20"))
+
+        if len(self.run_id)>maxlen_run_id:
+            addValidationError("Run id %s is too long (%d). Must be max %d characters." % (self.run_id, len(self.run_id), maxlen_run_id))
+
+        if len(self.paragraphs) > top_k:
+            addValidationError("Page %s has too many paragraphs (%d); only top_k = %d paragraphs allowed per page." % (self.squid, len(self.paragraphs), top_k))
+
+        if len(self.paragraphs) < top_k:
+            addValidationError("Page %s has too few paragraphs (%d); page should contain top_k = %d paragraphs per page." % (self.squid, len(self.paragraphs), top_k))
+        return errors
+
+    def validate_paragraph_origins(self, top_k:int)->None:
+
+        pass
+
 
 def submission_to_json(pages: Iterator[Page]) -> str:
     return "\n".join([json.dumps(page.to_json()) for page in pages])
+
+def json_to_pages(json_handle:TextIO)->Iterator[Page]:
+    return (Page.from_json(json.loads(line)) for line in json_handle)
 
 
 
