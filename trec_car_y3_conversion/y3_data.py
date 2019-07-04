@@ -384,7 +384,7 @@ class Page(Jsonable):
         return errors
 
     def validate_minimal_y3_spec(self, top_k:int, maxlen_run_id:int)->List[Union[ValidationError, ValidationWarning]]:
-        errors = []
+        errors = []  # type: List[Union[ValidationError, ValidationWarning]]
         def addValidationError(message:str, is_warning:bool=False):
             if is_warning:
                 errors.append(ValidationWarning(message=message, data= self))
@@ -408,7 +408,7 @@ class Page(Jsonable):
         return errors
 
     def validate_paragraph_y3_origins(self, top_k:int)->List[Union[ValidationError, ValidationWarning]]:
-        errors = []
+        errors = []  # type: List[Union[ValidationError, ValidationWarning]]
         def addValidationError(message:str, is_warning:bool=False):
             if is_warning:
                 errors.append(ValidationWarning(message=message, data= self))
