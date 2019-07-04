@@ -92,13 +92,15 @@ def run_parse() -> None:
 
                     errs = []
                     errs.extend(page.validate_minimal_spec())
-                    errs.extend(page.validate_minimal_y3_spec(top_k=top_k, maxlen_run_id=8))
+                    errs.extend(page.validate_required_y3_spec(top_k=top_k, maxlen_run_id=8))
                     errs.extend(page.validate_paragraph_y3_origins(top_k=top_k))
                     if errs:
                         validationErrors[page.squid] = errs
-                    real_errors = [err for err in errs if isinstance(err, ValidationError)]
-                    if (fail_on_first and real_errors):
-                        raise real_errors[0]
+
+                    if (fail_on_first):
+                            real_errors = [err for err in errs if isinstance(err, ValidationError)]
+                            if (real_errors):
+                                raise real_errors[0]
 
                 except JsonParsingError as ex:
                     if(fail_on_first):
@@ -109,12 +111,12 @@ def run_parse() -> None:
                         raise ex
 
         for squid in found_squids.keys() - (required_squids.keys()):
-            if squid not in errs:
+            if squid not in validationErrors:
                 validationErrors[squid] = []
             validationErrors[squid].append(ValidationError(message = "Page with %s not in the outline file and therefore must not be submitted." % squid, data = found_squids[squid]))
 
         for squid in required_squids.keys() - (found_squids.keys()):
-            if squid not in errs:
+            if squid not in validationErrors:
                 validationErrors[squid] = []
             validationErrors[squid].append(ValidationError(message = "Page with %s is missing, but is contained in the outline file. Page with this squid must be submitted." % squid, data = required_squids[squid]))
 

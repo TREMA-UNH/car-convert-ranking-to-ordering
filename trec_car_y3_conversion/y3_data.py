@@ -9,6 +9,15 @@ import pprint
 
 from trec_car.read_data import iter_outlines
 
+def safe_group_by(pairs:Iterator[Tuple[str,Any]])->Dict[str,List[Any]]:
+    res = {} # type: Dict[str,List[Any]]
+    for (k,v) in pairs:
+        if k  not in res:
+            res[k] = []
+        res[k].append(v)
+    return res
+
+
 
 # ---------------------------- CBOR Outline Parser ----------------------------
 class OutlineReader(object):
@@ -41,6 +50,8 @@ class Jsonable(object):
         raise RuntimeError("Must call from_json of implementing class")
 
 
+# ---------------------------- Validation Errors and Warnings ----------------------------
+
 class JsonParsingError(BaseException):
     """ JSON parsing failure. """
     def __init__(self, message, data):
@@ -67,7 +78,7 @@ class ValidationError(BaseException):
     """ Data validation failed. """
     def __init__(self, message:str, data:"Page")->None:
         self.message = "ERROR: " +message
-        super(ValidationError, self).__init__(self.message+ "Problematic JSON:\n"+ (pprint.pformat(data.to_json(), indent = 4, width = 80)))
+        super(ValidationError, self).__init__(self.message+ "Problematic JSON:\n"+ (pprint.pformat(data.to_json(suppress_validation = True), indent = 4, width = 80)))
         self.data = data
         self.squid = data.squid
 
@@ -81,7 +92,7 @@ class ValidationError(BaseException):
         return self.squid
 
 class ValidationWarning(BaseException):
-    """ Data validation failed. """
+    """ Data validation warning. """
     def __init__(self, message:str, data:"Page")->None:
         self.message = "WARNING: "+message
         super(ValidationWarning, self).__init__(self.message+ "Problematic JSON:\n"+ (pprint.pformat(data, indent = 4, width = 80)))
@@ -96,6 +107,9 @@ class ValidationWarning(BaseException):
 
     def get_squid(self):
         return self.squid
+
+
+# ---------------------------- Json validation helper methods ----------------------------
 
 
 def optKey(data:Dict[str,Any], key:str)->Optional[Any]:
@@ -118,11 +132,9 @@ def getListKey(data:Dict[str,Any], key:str)->List[Any]:
     else:
         return data[key]
 
-# def getOptListKey(data:Dict[str,Any], key:str)->Optional[List[Any]]:
-#     if key in data:
-#         return getListKey(data,key)
-#     else:
-#         return None
+
+
+# ---------------------------- Page class and its parts ----------------------------
 
 
 class ParBody(Jsonable):
@@ -185,7 +197,7 @@ class Paragraph(Jsonable):
 
 class QueryFacet(Jsonable):
     """
-    An annotation query facet (containing the facet's name and id)
+    A query facet of a page (containing the facet's name and id)
     """
     def __init__(self, facet_id:str, heading:str)->None:
         self.facet_id = facet_id
@@ -235,14 +247,6 @@ class ParagraphOrigin(Jsonable):
         return ParagraphOrigin(para_id=getKey(data, 'para_id'), section_path=getKey(data, 'section_path'), rank_score = data['rank_score'], rank = rank)
 
 
-def safe_group_by(pairs:Iterator[Tuple[str,Any]])->Dict[str,List[Any]]:
-    res = {} # type: Dict[str,List[Any]]
-    for (k,v) in pairs:
-        if k  not in res:
-            res[k] = []
-        res[k].append(v)
-    return res
-
 class Page(Jsonable):
     """
     A page that is populated
@@ -259,12 +263,10 @@ class Page(Jsonable):
         self.title = title
         self.squid = squid
 
-        # paragraphs retrieved per facet
-        # self.facet_paragraphs = facet_paragraphs  # type: Optional[Dict[str,List[Paragraph]]]
-
         # paragraphs get loaded later
         self.pids = set() if pids is None else pids # type: Set[str]
         self.paragraphs = [] if paragraphs is None else paragraphs # type: List[Paragraph]
+
         # paragraph origins
         self.paragraph_origins = paragraph_origins # type: Optional[List[ParagraphOrigin]]
 
@@ -280,8 +282,8 @@ class Page(Jsonable):
         return Page(squid = self.squid, title = self.title, run_id = run_id, query_facets = self.query_facets)
 
 
-    def to_json(self):
-        if not self.paragraphs:
+    def to_json(self, suppress_validation:bool = False):
+        if not suppress_validation and not self.paragraphs:
             raise RuntimeError("Can only serialize populated pages to JSON, but page %s has no paragraphs." % self.squid)
 
         dictionary =  { "title": self.title
@@ -336,6 +338,8 @@ class Page(Jsonable):
 
 
     def validate_minimal_spec(self)->List[ValidationError]:
+        """ Minimal validation of loaded page and field types """
+
         errors = []
         def addValidationError( message:str):
             errors.append(ValidationError(message=message, data= self))
@@ -383,7 +387,9 @@ class Page(Jsonable):
 
         return errors
 
-    def validate_minimal_y3_spec(self, top_k:int, maxlen_run_id:int)->List[Union[ValidationError, ValidationWarning]]:
+    def validate_required_y3_spec(self, top_k:int, maxlen_run_id:int)->List[Union[ValidationError, ValidationWarning]]:
+        """ Validation of further constraints for Y3 submission, such as correct query name space (in squid) and page budget. """
+
         errors = []  # type: List[Union[ValidationError, ValidationWarning]]
         def addValidationError(message:str, is_warning:bool=False):
             if is_warning:
@@ -408,6 +414,10 @@ class Page(Jsonable):
         return errors
 
     def validate_paragraph_y3_origins(self, top_k:int)->List[Union[ValidationError, ValidationWarning]]:
+        """ Validation of paragraph origins, if provided.
+        Paragraph origins are optional, but if given, they must be correct and consistent and using the right query name space (of squid).
+        """
+
         errors = []  # type: List[Union[ValidationError, ValidationWarning]]
         def addValidationError(message:str, is_warning:bool=False):
             if is_warning:
@@ -457,6 +467,10 @@ class Page(Jsonable):
             if( not all (p.rank is not None for p in self.paragraph_origins)):
                 addValidationError("paragraph_origins for page %s have some entries, but not all entries. Must either be omitted or provided for all paragraph_origins."%(self.squid), is_warning= True)
 
+            for p in self.paragraph_origins:
+                if p.rank is not None and not p.rank >= 1:
+                    addValidationError("Rank of paragraph_origins must be 1 or larger, but paragraph %s has rank %d on page %s. \n" %(p.para_id,p.rank, self.squid))
+
 
             for spath in found_section_paths:
                 origins_for_spath = [p for p in self.paragraph_origins if p.section_path == spath]
@@ -495,6 +509,10 @@ def json_to_pages(json_handle:TextIO)->Iterator[Page]:
 # ---------------------------- Run Parsing ----------------------------
 
 class RunLine(object):
+    """
+    Object representing one line in a run file
+    """
+
     def __init__(self, qid:str, doc_id:str, rank:int,score:float,run_name:str) -> None:
         self.qid = qid
         self.doc_id = doc_id
@@ -535,7 +553,9 @@ class RunFile(object):
 
 
 class RunPageKey(object):
-
+    """
+    Hashable key of (run_name, squid) pairs.
+    """
     def __eq__(self, o: object) -> bool:
         return isinstance(o, RunPageKey) and self.key.__eq__(o.key)
 
