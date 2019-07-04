@@ -8,6 +8,102 @@ from trec_car.read_data import iter_paragraphs, ParaText, ParaLink
 from trec_car_y3_conversion.y3_data import *
 
 
+
+
+class PageFacetCache():
+    """
+    A page that is in process of being populated. But we have to do some caching and computation before its done (and then turns into a Page).
+
+    """
+
+    def __init__(self, page:Page)->None:
+        self.page=page
+        self.facet_paragraphs = dict() # type: Optional[Dict[str,List[Paragraph]]]
+
+        self.paragraph_origins = None # type: Optional[List[ParagraphOrigin]]
+        # return page
+
+
+    def add_paragraph_origins(self, origin):
+        self.page.add_paragraph_origins(origin)
+
+
+    def add_facet_paragraph(self, qid:str, paragraph: Paragraph)->None:
+        assert qid.startswith(self.page.squid), ( "Query id %s does not belong to this page %s"  % (qid, self.page.squid))
+        if self.facet_paragraphs is None:
+            self.facet_paragraphs = dict()
+
+        if qid not in self.facet_paragraphs:
+            self.facet_paragraphs[qid]=[]
+        self.facet_paragraphs[qid].append(paragraph)
+
+
+    def populate_paragraphs(self, top_k:int)->Page:
+        """
+        In a round-robin fashion, select the top ceil(top_k/num_facets) paragraphs from each ranking, as set through :func:`add_facet_paragraph`.
+
+        However, in cases where a ranking does not have enough paragraphs, or facets are missing, or
+        where top_k is not divisible by num_facets and we would have either more or less than top_k paragraphs, it is
+        difficult to best fill the `top_k` budget.
+
+        This function will use a round-robin approach, iteratively filling the budget by selecting one paragraph from
+        each facet, then looping over facets until the budget is filled. This function will do its best to
+        exactly meet the top_k budget. Only when there are not enough retrieved paragraphs (submitted through :func:`add_facet_paragraph`)
+        this function will not maximize the budget.
+
+        After determining which paragraphs to select, this function will populate the self.paragraphs field  (and self.pids)
+        by concatenating the selected paragaphs from self.facet_paragraphs in the order in which facets appear in the
+        outline.
+
+        This function can only be called when self.paragraphs are not set, but facet_paragraphs are available.
+
+        :param top_k:
+        :return:
+        """
+        # if self.paragraphs:
+        #     raise RuntimeError("Page %s is already populated with %d paragraphs. Cannot be populated twice!. Did you mean to read the paragraphs or pids field?" % (self.squid, len(self.paragraphs)))
+        if not self.facet_paragraphs :
+            raise RuntimeError("No facet_paragraphs set for page %s, cannot populate paragraphs. Did you mean to read the paragraphs or pids field?" % self.page.squid)
+
+        facetKeys = self.facet_paragraphs.keys()
+        for fk in facetKeys:
+            assert fk.startswith(self.page.squid), "Facet of wrong page"
+
+
+        facet_take_k = {facet_id:0 for facet_id in self.facet_paragraphs}
+        k = 0
+        did_change = True
+        self.page.paragraphs = []
+
+        while k < top_k and did_change:
+            did_change = False
+            for facet in self.page.query_facets:
+                facet_id = facet.facet_id
+                if k < top_k and facet_id in facet_take_k:
+                    if len(self.facet_paragraphs[facet_id]) > (facet_take_k[facet_id] + 1):
+                        facet_take_k[facet_id] += 1
+                        k += 1
+                        did_change = True
+
+        # assert sum (v for v in facet_take_k.values()) > 0, ("no paragraphs for select for page %s" % self.squid)
+
+        for facet in self.page.query_facets:
+            facet_id = facet.facet_id
+            if facet_id in facet_take_k:
+                ps = self.facet_paragraphs[facet_id][0 : facet_take_k[facet_id]] # type: List[Paragraph]
+                self.page.paragraphs.extend(ps)
+
+
+        if k == 0:
+            print ("Warning: No paragraphs for population of page %s" % (self.page.squid), file=sys.stderr)
+        elif k < top_k:
+            print ("Warning: page %s could only be populated with %d paragraphs (instead of full budget %d)" % (self.page.squid, k, top_k), file=sys.stderr)
+        self.page.pids = {p.para_id for p in self.page.paragraphs}
+
+        return self.page
+
+
+
 class RunManager(object):
     """
     Responsible for all the heavy lifting:
@@ -15,10 +111,10 @@ class RunManager(object):
      - Creates data classes (that can be turned into jsons) based on these runs
     """
 
-    def __init__(self, outline_cbor_file: str, top_k: int = 20, run_dir: Optional[str] = None, run_file: Optional[str] = None, run_name: Optional[str] = None) -> None:
+    def __init__(self, outline_cbor_file: str) -> None:
         self.paragraphs_to_retrieve = {} # type: Dict[str, List[Paragraph]]
-        self.runs = [] # type: List[RunFile]
-        self.pages = {}  # type: Dict[RunPageKey, Page]
+        self.pageCaches = {}  # type: Dict[RunPageKey, PageFacetCache]
+        self.populated_pages = {}  # type: Dict[RunPageKey, Page]
         self.page_prototypes = {} # type: Dict[str, Page]
 
         with open(outline_cbor_file, 'rb') as f:
@@ -29,20 +125,9 @@ class RunManager(object):
             # self.page_prototypes = {facet.facet_id: page for page in OutlineReader.initialize_pages(f) for facet in page.query_facets}
 
 
-        if run_dir is not None:
-            for run_loc in os.listdir(run_dir):
-                self.runs.append(RunFile(top_k=top_k, run_file = run_dir + "/" + run_loc))
-        if run_file is not None:
-            self.runs.append(RunFile(top_k=top_k, run_file = run_file, run_name = run_name))
 
 
-        # After parsing run files, convert lines of these files into pages
-        for run in self.runs:
-            for run_line in run.runlines:
-                self.parse_run_line(run_line)
-
-
-    def parse_run_line(self, run_line: RunLine) -> None:
+    def convert_run_line(self, run_line: RunLine) -> None:
 
         if(run_line.qid in self.page_prototypes):   # Ignore other rankings
             page_prototype = self.page_prototypes[run_line.qid]
@@ -52,16 +137,16 @@ class RunManager(object):
             key = RunPageKey(run_name=run_line.run_name, squid=squid)
 
             # The first time we see a toplevel query for a particular run, we need to initialize a jsonable page
-            if key not in self.pages:
-                self.pages[key] = page_prototype.copy_prototype(run_line.run_name)
+            if key not in self.pageCaches:
+                self.pageCaches[key] = PageFacetCache(page = page_prototype.copy_prototype(run_line.run_name))
 
-            page = self.pages[key]
-            assert run_line.qid.startswith(page.squid), "fetched wrong page"
+            pageCache = self.pageCaches[key]
+            assert run_line.qid.startswith(pageCache.page.squid), "fetched wrong page"
 
             # Add paragraph and register this for later (when we retrieve text / links)
             paragraph = Paragraph(para_id=run_line.doc_id)  # create empty paragraph, contents will be loaded later.
-            page.add_facet_paragraph(run_line.qid, paragraph)
-            assert run_line.qid.startswith(page.squid), "adding paragraphs to wrong page"
+            pageCache.add_facet_paragraph(run_line.qid, paragraph)
+            assert run_line.qid.startswith(pageCache.page.squid), "adding paragraphs to wrong page"
             # self.register_paragraph(paragraph)
 
             # Also add which query this paragraph is with respect to
@@ -71,7 +156,7 @@ class RunManager(object):
                 rank_score=run_line.score,
                 section_path=run_line.qid
             )
-            page.add_paragraph_origins(origin)
+            pageCache.add_paragraph_origins(origin)
 
 
 
@@ -95,9 +180,6 @@ class RunManager(object):
         pcollector = ParagraphTextCollector(self.paragraphs_to_retrieve)
         pcollector.retrieve_paragraph_mappings(paragraph_cbor_file)
 
-    # def cut_pages_to_top_k(self, top_k):
-    #     for (key, page)  in self.pages.items():
-    #         page.populate_paragraphs(top_k)
 
 
 
@@ -183,6 +265,11 @@ def get_parser():
     parsed = parser.parse_args()
     return parsed.__dict__
 
+def group_pages_by_run_id(pages:Iterator[Page]) -> Iterator[Tuple[Any, Iterator[Page]]]:
+    def keyfunc(p):
+        return p.run_id
+    return itertools.groupby(sorted(pages, key=keyfunc), key=keyfunc)
+
 
 def run_parse() -> None:
     parsed = get_parser()
@@ -197,29 +284,43 @@ def run_parse() -> None:
 
 
 
-    run_manager = RunManager(outline_cbor_file = outlines_cbor_file, top_k = top_k, run_dir=run_dir, run_file = run_file, run_name = run_name)
+    run_manager = RunManager(outline_cbor_file = outlines_cbor_file)
 
-    for page in run_manager.pages.values():
-        page.populate_paragraphs(top_k)
+    # After parsing run files, convert lines of these files into pages
+    for run in load_runs(run_dir, run_file, run_name, top_k):
+        for run_line in run.runlines:
+            run_manager.convert_run_line(run_line)
+
+
+    run_manager.populated_pages = { key: pageCache.populate_paragraphs(top_k)
+                                   for key, pageCache in run_manager.pageCaches.items()}
+
+    for page in run_manager.populated_pages.values():
         for para in page.paragraphs:
             run_manager.register_paragraph(para)
-            # Register the paragraph here.
-            # the paragraph text will be set directly into the paragraph object by the RunManager
 
     if (paragraph_cbor_file is not None):
         run_manager.retrieve_text(paragraph_cbor_file)
 
 
-    def keyfunc(p):
-        return p.run_id
+    if not os.path.exists(ouput_dir+"/"):
+        os.mkdir(ouput_dir+"/")
 
-    if not os.path.exists("jsons/"):
-        os.mkdir("jsons/")
-
-    for run_id, pages in itertools.groupby(sorted(run_manager.pages.values(), key=keyfunc), key=keyfunc):
+    for run_id, pages in group_pages_by_run_id(run_manager.populated_pages.values()):
         out_name = ouput_dir+"/" + run_id + ".jsonl"
         with open(out_name, "w") as f:
             f.write(submission_to_json(pages))
+
+
+def load_runs(run_dir, run_file, run_name, top_k):
+    runs = []  # type: List[RunFile]
+    if run_dir is not None:
+        for run_loc in os.listdir(run_dir):
+            runs.append(RunFile(top_k=top_k, run_file=run_dir + "/" + run_loc))
+    if run_file is not None:
+        runs.append(RunFile(top_k=top_k, run_file=run_file, run_name=run_name))
+    return runs
+
 
 if __name__ == '__main__':
     run_parse()

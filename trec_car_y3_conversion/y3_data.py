@@ -243,15 +243,14 @@ def safe_group_by(pairs:Iterator[Tuple[str,Any]])->Dict[str,List[Any]]:
         res[k].append(v)
     return res
 
-
 class Page(Jsonable):
     """
-    A page used for annotations.
+    A page that is populated
 
     """
 
     def __init__(self, squid: str, title: str, run_id: Optional[str], query_facets: List[QueryFacet]
-                 , facet_paragraphs: Optional[Dict[str, List[Paragraph]]] =  None    # None means None -- initialize with {} when needed
+                 # , facet_paragraphs: Optional[Dict[str, List[Paragraph]]] =  None    # None means None -- initialize with {} when needed
                  , paragraph_origins: Optional[List[ParagraphOrigin]] = None   # None means actually None here
                  , pids: Optional[Set[str]] = None                             # None means initialize with {}
                  , paragraphs: List[Paragraph] = None) -> None:                # None means initialize with []
@@ -261,7 +260,7 @@ class Page(Jsonable):
         self.squid = squid
 
         # paragraphs retrieved per facet
-        self.facet_paragraphs = facet_paragraphs  # type: Optional[Dict[str,List[Paragraph]]]
+        # self.facet_paragraphs = facet_paragraphs  # type: Optional[Dict[str,List[Paragraph]]]
 
         # paragraphs get loaded later
         self.pids = set() if pids is None else pids # type: Set[str]
@@ -284,7 +283,6 @@ class Page(Jsonable):
     def to_json(self):
         if not self.paragraphs:
             raise RuntimeError("Can only serialize populated pages to JSON, but page %s has no paragraphs." % self.squid)
-
 
         dictionary =  { "title": self.title
                 , "squid": self.squid
@@ -311,83 +309,8 @@ class Page(Jsonable):
                     , paragraphs = paragraphs
                     , paragraph_origins = paragraph_origins
                     , pids = {p.para_id for p in paragraphs}
-                    , facet_paragraphs = None
                     )
 
-
-
-    def add_facet_paragraph(self, qid:str, paragraph: Paragraph)->None:
-        assert qid.startswith(self.squid), ( "Query id %s does not belong to this page %s"  % (qid, self.squid))
-        if self.facet_paragraphs is None:
-            self.facet_paragraphs = dict()
-
-        if qid not in self.facet_paragraphs:
-            self.facet_paragraphs[qid]=[]
-        self.facet_paragraphs[qid].append(paragraph)
-
-
-    def populate_paragraphs(self, top_k:int)->None:
-        """
-        In a round-robin fashion, select the top ceil(top_k/num_facets) paragraphs from each ranking, as set through :func:`add_facet_paragraph`.
-
-        However, in cases where a ranking does not have enough paragraphs, or facets are missing, or
-        where top_k is not divisible by num_facets and we would have either more or less than top_k paragraphs, it is
-        difficult to best fill the `top_k` budget.
-
-        This function will use a round-robin approach, iteratively filling the budget by selecting one paragraph from
-        each facet, then looping over facets until the budget is filled. This function will do its best to
-        exactly meet the top_k budget. Only when there are not enough retrieved paragraphs (submitted through :func:`add_facet_paragraph`)
-        this function will not maximize the budget.
-
-        After determining which paragraphs to select, this function will populate the self.paragraphs field  (and self.pids)
-        by concatenating the selected paragaphs from self.facet_paragraphs in the order in which facets appear in the
-        outline.
-
-        This function can only be called when self.paragraphs are not set, but facet_paragraphs are available.
-
-        :param top_k:
-        :return:
-        """
-        if self.paragraphs:
-            raise RuntimeError("Page %s is already populated with %d paragraphs. Cannot be populated twice!. Did you mean to read the paragraphs or pids field?" % (self.squid, len(self.paragraphs)))
-        if not self.facet_paragraphs :
-            raise RuntimeError("No facet_paragraphs set for page %s, cannot populate paragraphs. Did you mean to read the paragraphs or pids field?" % self.squid)
-
-        facetKeys = self.facet_paragraphs.keys()
-        for fk in facetKeys:
-            assert fk.startswith(self.squid), "Facet of wrong page"
-
-
-        facet_take_k = {facet_id:0 for facet_id in self.facet_paragraphs}
-        k = 0
-        did_change = True
-        self.paragraphs = []
-
-        while k < top_k and did_change:
-            did_change = False
-            for facet in self.query_facets:
-                facet_id = facet.facet_id
-                if k < top_k and facet_id in facet_take_k:
-                    if len(self.facet_paragraphs[facet_id]) > (facet_take_k[facet_id] + 1):
-                        facet_take_k[facet_id] += 1
-                        k += 1
-                        did_change = True
-
-        # assert sum (v for v in facet_take_k.values()) > 0, ("no paragraphs for select for page %s" % self.squid)
-
-        for facet in self.query_facets:
-            facet_id = facet.facet_id
-            if facet_id in facet_take_k:
-                ps = self.facet_paragraphs[facet_id][0 : facet_take_k[facet_id]] # type: List[Paragraph]
-                self.paragraphs.extend(ps)
-
-
-        if k == 0:
-            print ("Warning: No paragraphs for population of page %s" % (self.squid), file=sys.stderr)
-        elif k < top_k:
-            print ("Warning: page %s could only be populated with %d paragraphs (instead of full budget %d)" % (self.squid, k, top_k), file=sys.stderr)
-        self.pids = {p.para_id for p in self.paragraphs}
-        self.facet_paragraphs = None # indicate that page is already populated
 
 
 
@@ -601,11 +524,6 @@ class RunFile(object):
         self. runlines = [] # type: List[RunLine]
         self.top_k = top_k # type: int
         self.load_run_file(run_file, run_name)
-
-    #
-    # def load_run_dir(self,run_dir):
-    #     for run_file in os.listdir(run_dir):
-    #         self.load_run_file(run_file = run_file, run_name = None)
 
     def load_run_file(self,run_file, run_name: Optional[str]):
         with open(run_file) as f:
