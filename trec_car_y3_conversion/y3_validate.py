@@ -1,13 +1,13 @@
 #!/usr/bin/python3
 import json
 import sys
-from typing import Union, List, Dict, Optional
+from typing import Union, List, Dict, Optional, Tuple
 import argparse
 import os
 
 
 from trec_car_y3_conversion.y3_data import ValidationWarning, ValidationError, Page, JsonParsingError, OutlineReader, \
-    Paragraph, safe_group_by, ValidationIssue
+    Paragraph, safe_group_by, ValidationIssue, safe_group_list_by
 
 from trec_car_y3_conversion.paragraph_text_collector import ValidationParagraphError, ParagraphTextCollector
 
@@ -30,6 +30,10 @@ def get_parser():
 
     parser.add_argument("--check-text-from-paragraph-cbor"
                         , help = "If set, loads and checks paragraph text from the paragraph corpus .cbor file. Remark: This check will be time consuming."
+                        )
+
+    parser.add_argument("--check-text-from-paragraph-id-list"
+                        , help = "If set, loads and checks paragraph text from paragraph-id list (produced by paragraph_list.py)."
                         )
 
     parser.add_argument("--check-y3"
@@ -82,6 +86,7 @@ def run_parse() -> None:
     check_origins = parsed["check_origins"] # type: bool
 
     paragraph_cbor_file = parsed["check_text_from_paragraph_cbor"]  # type: Optional[str]
+    paragraph_id_file = parsed["check_text_from_paragraph_id_list"]  # type: Optional[str]
 
 
     quick_check_y3 = parsed["quick_check_y3"] # type: bool
@@ -153,13 +158,22 @@ def run_parse() -> None:
 
         if paragraph_cbor_file is not None:
             collector = ParagraphTextCollector(paragraphs_to_validate)
-            errs = collector.validate_all_paragraph_text(paragraph_cbor_file=paragraph_cbor_file) # type : List[Tuple[str, List[Tuple[str,ValidationParagraphError]]]]
-            validationParagraphsErrors = safe_group_by(errs)
+            errsDict = collector.validate_all_paragraph_text(paragraph_cbor_file=paragraph_cbor_file) # type : List[Tuple[str, List[ValidationParagraphError]]]
+            validationParagraphsErrors = safe_group_list_by(errsDict)
 
             if (fail_on_first and errs):
                 raise errs[0]
 
+        elif paragraph_id_file is not None:
+            with open(paragraph_id_file,'r') as f:
+                paragraph_ids = set(f)
 
+                collector = ParagraphTextCollector(paragraphs_to_validate)
+                errsDict = collector.validate_all_paragraph_ids(paragraph_ids=paragraph_ids)
+                validationParagraphsErrors = safe_group_list_by(errsDict)
+
+                if (fail_on_first and errs):
+                    raise errs[0]
 
 
         for squid in found_squids.keys() - (required_squids.keys()):

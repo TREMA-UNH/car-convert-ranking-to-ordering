@@ -19,6 +19,15 @@ def safe_group_by(pairs:Iterator[Tuple[str,Any]])->Dict[str,List[Any]]:
         res[k].append(v)
     return res
 
+def safe_group_list_by(pairs:Iterator[Tuple[str,List[Any]]])->Dict[str,List[Any]]:
+    res = {} # type: Dict[str,List[Any]]
+    for (k,lst) in pairs:
+        if k  not in res:
+            res[k] = []
+
+        res[k].extend(lst)
+    return res
+
 
 
 # ---------------------------- CBOR Outline Parser ----------------------------

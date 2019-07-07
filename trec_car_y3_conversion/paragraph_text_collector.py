@@ -1,4 +1,4 @@
-from typing import List, Dict, Any, Tuple, Union, Callable, Optional
+from typing import List, Dict, Any, Tuple, Union, Callable, Optional, Set
 
 from trec_car.read_data import iter_paragraphs, ParaText, ParaLink
 from trec_car_y3_conversion.y3_data import Paragraph, ParBody, ValidationParagraphError, ErrorCollector, ValidationIssue
@@ -71,7 +71,33 @@ class ParagraphTextCollector(object):
 
     # --- validation ----
 
-    def validate_all_paragraph_text(self, paragraph_cbor_file) -> List[Tuple[str, List[Tuple[str,ValidationParagraphError]]]]:
+    def validate_all_paragraph_ids(self, paragraph_ids:Set[str]) -> List[Tuple[str, List[ValidationIssue ]]]:  # List (paraId, List[Errors])
+        """
+        :param paragraph_ids: Location of the paragraphCorpus.cbor file
+        """
+
+        if all (para.para_body == None for list in self.paragraphs_to_consider.values() for para in list):
+            return []   # para_bodies are optional, in which case they must be None.
+
+
+        self.validated_pids = {pid:(pid in paragraph_ids) for pid in self.paragraphs_to_consider.keys()}
+
+
+
+        errs2 = []  # type: List[Tuple[str, List[ValidationIssue]]]
+        missing_pids = {pid for (pid, checked) in  self.validated_pids.items() if not checked}
+        for pid in missing_pids:
+            paragraphs = self.paragraphs_to_consider[pid]
+            paragraph = paragraphs[0] # type: Paragraph
+            validation_paragraph_error = ValidationParagraphError(
+                message="Not a valid paragraph id %s. Paragraph must be omitted from the submission." % paragraph.para_id,
+                data=paragraph)
+            errs2.append((paragraph.para_id, [validation_paragraph_error]))
+
+        return errs2
+
+
+    def validate_all_paragraph_text(self, paragraph_cbor_file) -> List[Tuple[str, List[ValidationIssue]]]:    # List (paraId, List[Errors])
         """
         :param paragraph_cbor_file: Location of the paragraphCorpus.cbor file
         """
