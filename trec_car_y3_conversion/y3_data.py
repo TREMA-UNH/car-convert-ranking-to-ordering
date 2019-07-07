@@ -123,17 +123,21 @@ class ValidationIssue(BaseException):
 
 class ErrorCollector(object):
     """ Collector for page/paragraph specific validation issues"""
-    def __init__(self, pageData : Optional["Page"] = None, paragraphData : Optional["Paragraph"] = None)->None:
+    def __init__(self, pageData : Optional["Page"] = None, paragraphData : Optional["Paragraph"] = None, fail_on_first:bool = False)->None:
         self.errors = [] # type: List[ValidationIssue]
 
         self.pageData = pageData
         self.paragraphData = paragraphData
+        self.fail_on_first = fail_on_first
 
     def addValidationError(self, message:str, data: Optional["Page"]=None, is_warning:bool=False) -> None:
         if is_warning:
-            self.errors.append(ValidationPageWarning(message=message, data= data if data else self.pageData))
+            self.errors.append(ValidationPageWarning(message=message, data=data if data else self.pageData))
         else:
-            self.errors.append(ValidationPageError(message=message, data= data if data else self.pageData))
+            issue = ValidationPageError(message=message, data=data if data else self.pageData)
+            if (self.fail_on_first):
+                raise issue
+            self.errors.append(issue)
 
     def addParagraphValidationError(self, message:str, data: "Paragraph", is_warning:bool=False)->None:
         self.errors.append(ValidationParagraphError(message=message, data= data if data else self.paragraphData))
@@ -245,7 +249,7 @@ def getListKey(data:Dict[str,Any], key:str)->List[Any]:
 
 class ParBody(Jsonable):
     """
-    Represents the text of a paragraph.
+    Represents the content of a paragraph sas text-chunks and entity links.
     """
     def __init__(self, text:str, entity:Optional[str]=None, link_section:Optional[str]=None, entity_name:Optional[str]=None)-> None:
         self.entity_name = entity_name
@@ -378,8 +382,7 @@ class ParagraphOrigin(Jsonable):
 
 class Page(Jsonable):
     """
-    A page that is populated
-
+    A page that is in progress of being populated.
     """
 
     def __init__(self, squid: str, title: str, run_id: Optional[str], query_facets: List[QueryFacet]
@@ -446,6 +449,9 @@ class Page(Jsonable):
 
 
 
+    @staticmethod
+    def fail_ascii_str(x):
+        return not x or not isinstance(x, str) or len(x) == 0 or not (all(ord(c) < 128 for c in x))
 
     @staticmethod
     def fail_str(x):
@@ -468,17 +474,17 @@ class Page(Jsonable):
 
 
 
-    def validate_minimal_spec(self)->List[ValidationIssue]:
+    def validate_minimal_spec(self, fail_on_first:bool=False)->List[ValidationIssue]:
         """ Minimal validation of loaded page and field types """
-        errs = ErrorCollector(pageData=self) # type : ErrorCollector[ValidationError]
+        errs = ErrorCollector(pageData=self, fail_on_first=fail_on_first) # type : ErrorCollector[ValidationError]
 
 
-        if Page.fail_str(self.squid):
-            errs.addValidationError("Page squid %s (aka page id) of invalid type. Must be non-empty string."% self.squid)
-        if Page.fail_str(self.run_id):
-            errs.addValidationError("Run id %s for page %s of invalid type. Must be non-empty string."% (self.run_id, self.squid))
+        if Page.fail_ascii_str(self.squid):
+            errs.addValidationError("Page squid %s (aka page id) of invalid type. Must be non-empty ASCII string."% self.squid)
+        if Page.fail_ascii_str(self.run_id):
+            errs.addValidationError("Run id %s for page %s of invalid type. Must be non-empty ASCII string."% (self.run_id, self.squid))
         if not self.paragraphs:
-            errs.addValidationError("Paragraphs for page %s are empty. Must be non-empty list of paragraphs."% (self.squid))
+            errs.addValidationError("Paragraphs for page %s is set to an empty list. Must be non-empty list of paragraphs."% (self.squid))
 
         for paragraph in self.paragraphs:
             if not isinstance(paragraph, Paragraph):
@@ -504,8 +510,8 @@ class Page(Jsonable):
             if Page.fail_paragraph_id(origin.para_id):
                 errs.addValidationError("Paragraph id %s in paragraph_origins of page %s of invalid type. Must contain 40 hexadecimal characters."% (origin.para_id, self.squid))
 
-            if Page.fail_str(origin.section_path):
-                errs.addValidationError("Section path %s in paragraph_origins of page %s of invalid type. Must be non-empty string."% (origin.section_path, self.squid))
+            if Page.fail_ascii_str(origin.section_path):
+                errs.addValidationError("Section path %s in paragraph_origins of page %s of invalid type. Must be non-empty ASCII string."% (origin.section_path, self.squid))
 
             if Page.fail_opt_int(origin.rank):
                 errs.addValidationError("Rank %d in paragraph_origins of page %s of invalid type. Must be non-negative integer or omitted."% (origin.rank, self.squid))
@@ -515,10 +521,10 @@ class Page(Jsonable):
 
         return errs.errors
 
-    def validate_required_y3_spec(self, top_k:int, maxlen_run_id:int)->List[ValidationIssue]:
+    def validate_required_y3_spec(self, top_k:int, maxlen_run_id:int, fail_on_first:bool=False)->List[ValidationIssue]:
         """ Validation of further constraints for Y3 submission, such as correct query name space (in squid) and page budget. """
 
-        errs = ErrorCollector(pageData= self)
+        errs = ErrorCollector(pageData= self, fail_on_first=fail_on_first)
 
 
         if not self.squid.startswith("tqa2:"):
@@ -538,12 +544,12 @@ class Page(Jsonable):
 
         return errs.errors
 
-    def validate_paragraph_origins(self, top_k:int)->List[ValidationIssue]:
+    def validate_paragraph_origins(self, top_k:int, fail_on_first:bool=False)->List[ValidationIssue]:
         """ Validation of paragraph origins, if provided.
         Paragraph origins are optional, but if given, they must be correct and consistent and using the right query name space (of squid).
         """
 
-        errs = ErrorCollector(pageData= self)
+        errs = ErrorCollector(pageData= self, fail_on_first=fail_on_first)
 
         def pretty2(sort_by_score:List[ParagraphOrigin],sort_by_rank:List[ParagraphOrigin])->str:
             lines = ["%s\t%s"%(str(p1.to_json()), str(p2.to_json()))  for (p1,p2) in zip(sort_by_score, sort_by_rank)]
@@ -613,12 +619,12 @@ class Page(Jsonable):
         return errs.errors
 
 
-    def validate_y3_paragraph_origins(self)->List[ValidationIssue]:
+    def validate_y3_paragraph_origins(self, fail_on_first:bool=False)->List[ValidationIssue]:
         """ Validation of paragraph origins, if provided.
         Paragraph origins are optional, but if given, they must be correct and consistent and using the right query name space (of squid).
         """
 
-        errs = ErrorCollector(pageData= self)
+        errs = ErrorCollector(pageData= self, fail_on_first=fail_on_first)
 
         def pretty2(sort_by_score:List[ParagraphOrigin],sort_by_rank:List[ParagraphOrigin])->str:
             lines = ["%s\t%s"%(str(p1.to_json()), str(p2.to_json()))  for (p1,p2) in zip(sort_by_score, sort_by_rank)]
@@ -639,9 +645,17 @@ class Page(Jsonable):
         return errs.errors
 
 def submission_to_json(pages: Iterable[Page]) -> str:
+    """
+    Bulk conversion of pages to Json lines
+    :param pages: to be converted
+    :return: all pages in one string, ready to be written to a file
+    """
     return "\n".join([json.dumps(page.to_json()) for page in pages])
 
 def json_to_pages(json_handle:TextIO)->Iterator[Page]:
+    """ Convert a text file in json-lines format into an iterator of pages
+    :param json_handle file handle in json-lines
+    """
     return (Page.from_json(json.loads(line)) for line in json_handle)
 
 

@@ -7,18 +7,60 @@ import os
 
 
 from trec_car_y3_conversion.y3_data import ValidationPageWarning, ValidationPageError, Page, JsonParsingError, OutlineReader, \
-    Paragraph, safe_group_by, ValidationIssue, safe_group_list_by
+    Paragraph, ValidationIssue, safe_group_list_by
 
 from trec_car_y3_conversion.paragraph_text_collector import ValidationParagraphError, ParagraphTextCollector
 
 
-def get_parser():
-    parser = argparse.ArgumentParser("y3_validate.py")
-    parser.add_argument("--outline-cbor"
-                        , help = "Path to an outline.cbor file"
-                        , required= True
-                        )
+validation_rules = """
+VALIDATION RULES for TREC CAR Y3
 
+
+Minimal Spec Requirements
+-------------------------
+
+- all ids (page squid, run id, section path, etc) must be set to non-empty ascii strings.
+
+- additionally: a paragraph_id must be a hexadecimal string of 40 characters that is contained in the paragraphCorpus.cbor
+
+- Paragraphs for a page must be a non-empty list
+
+- The minimal representation of a paragraph is the `paragraph_id`. The para_body element is optional, but if given, it must be correct and agree with the representation in the paragraphCorpus.cbor. Cannot be set of an empty list, instead the entry must not appear in the json.
+
+- A page's `paragraph_origins` are optional, but if given, they must be correct according to the following defition with valid paragraph id and a float-valued `rank_score`. Cannot be set to an empty list, instead must not appear in json.
+
+   - The section_path` must refer to a valid heading id of the page outlines are allowed. These are to be given in the format "squid/heading id". It is strongly recommended to include paragraphs for all headings.
+
+   - Up to 20 paragraphs are allowed per heading. (We strongly encourage to include exactly 20 paragraphs per heading.)
+
+   - The `rank` field is optional, but if given must  must agree with the sort-order of the `rank_score`. Also, the lowest valid number for `rank` is 1 (i.e., highest rank is 1). Ranks must be unique (i.e., no ties).
+
+
+
+
+Further requirements for Y3 submissions
+---------------------------------------
+
+- All page squids must start with the proper namespace, i.e., 'tqa2:`. They cannot contain `%20` symbols, because these were only used in Y1 and Y2 -- not in Y3!
+
+- Run ids must not contain more than 8 ascii characters. (please include an abbreviation of your team name)
+
+
+- Only 20 paragraphs must be givem. We strongly encourage to provide exactly 20 paragraphs!
+
+"""
+
+def get_parser():
+
+
+    parser = argparse.ArgumentParser(description="Validate a TREC CAR Y3 submission of populated pages. ")
+
+
+
+    parser.add_argument("--print-validation-rules"
+                        , help = "Print the list validation rules and exit."
+                        , action = "store_true"
+                        )
 
 
     parser.add_argument("--y3-file"
@@ -28,21 +70,21 @@ def get_parser():
                         , help = "Directory of Json-lines file CAR Y3 format."
                         )
 
-    parser.add_argument("--check-text-from-paragraph-cbor"
-                        , help = "If set, loads and checks paragraph text from the paragraph corpus .cbor file. Remark: This check will be time consuming."
+
+
+    parser.add_argument("--outline-cbor"
+                        , help = "Path to an outline.cbor file"
+                        , required= True
                         )
 
-    parser.add_argument("--check-text-from-paragraph-id-list"
-                        , help = "If set, loads and checks paragraph text from paragraph-id list (produced by paragraph_list.py)."
+    parser.add_argument("-k"
+                        , help = "Maximum number of paragraphs to pull from each query in a runfile. (Default is 20)"
+                        , default = 20
+                        , metavar = "INT"
                         )
 
     parser.add_argument("--check-y3"
-                        , help = "Activate strict checks for TREC CAR Y3 submission"
-                        , action = "store_true"
-                        )
-
-    parser.add_argument("--quick-check-y3"
-                        , help = "Checks performed during TREC CAR Y3 upload"
+                        , help = "Activate strict checks for TREC CAR Y3 submission."
                         , action = "store_true"
                         )
 
@@ -51,10 +93,20 @@ def get_parser():
                         , action = "store_true"
                         )
 
-    parser.add_argument("-k"
-                        , help = "Maximum number of paragraphs to pull from each query in a runfile. (Default is 25)"
-                        , default = 25
-                        , metavar = "INT"
+
+    parser.add_argument("--check-text-from-paragraph-cbor"
+                        , help = "If set, loads and checks paragraph text from the paragraph corpus .cbor file. Remark: This check will be time-consuming."
+                        )
+
+    parser.add_argument("--check-text-from-paragraph-id-list"
+                        , help = "If set, loads and checks paragraph text from paragraph-id list (produced by paragraph_list.py). (Only in effect when --check-text-from-paragraph-cbor is not set.)"
+                        , metavar= "ID-FILE"
+                        )
+
+
+    parser.add_argument("--fail-on-first"
+                        , help = "If set, fails on first error. (Otherwise, lists all issues)"
+                        , action = "store_true"
                         )
 
     parser.add_argument("--print-json"
@@ -62,8 +114,9 @@ def get_parser():
                         , action = "store_true"
                         )
 
-    parser.add_argument("--fail-on-first"
-                        , help = "If set, fails on first error. (Otherwise, lists all issues)"
+
+    parser.add_argument("--submission-check-y3"
+                        , help = "Checks performed during TREC CAR Y3 upload. Equivalent to -k 20 --check-y3 --fail-on-first --check-text-from-paragraph-id-list paragraph_ids.txt"
                         , action = "store_true"
                         )
 
@@ -75,6 +128,11 @@ def get_parser():
 
 def run_parse() -> None:
     parsed = get_parser()
+    if (parsed['print_validation_rules']):
+        print(validation_rules)
+        sys.exit(0)
+
+
     outlines_cbor_file = parsed["outline_cbor"]  # type: str
     json_dir = parsed["y3_dir"]  # type: str
     json_file = parsed["y3_file"]  # type: str
@@ -89,10 +147,16 @@ def run_parse() -> None:
     paragraph_id_file = parsed["check_text_from_paragraph_id_list"]  # type: Optional[str]
 
 
-    quick_check_y3 = parsed["quick_check_y3"] # type: bool
-    if quick_check_y3:
-        top_k = 25
+    submission_check_y3 = parsed["submission_check_y3"] # type: bool
+    if submission_check_y3:
+        if not paragraph_id_file:
+            paragraph_id_file = "paragraph_ids.txt"
+        if not os.path.isfile(paragraph_id_file):
+            raise RuntimeError("Paragraph ID file needed but \"%s\" does not exist. Create with \"python3 paragraph_list.py --paragraph-cbor CBOR -o %s\"" % (paragraph_id_file, paragraph_id_file))
+
+        top_k = 20
         check_y3 = True
+        fail_on_first = True
 
 
     page_prototypes = {} # type: Dict[str, Page]
@@ -121,16 +185,16 @@ def run_parse() -> None:
                     found_squids[page.squid] = page
 
                     errs = [] #type: List[ValidationIssue]
-                    errs.extend(page.validate_minimal_spec())
+                    errs.extend(page.validate_minimal_spec(fail_on_first=fail_on_first))
 
                     if(check_y3):
-                        errs.extend(page.validate_required_y3_spec(top_k=top_k, maxlen_run_id=8))
+                        errs.extend(page.validate_required_y3_spec(top_k=top_k, maxlen_run_id=8, fail_on_first=fail_on_first))
 
                     if(check_origins):
-                        errs.extend(page.validate_paragraph_origins(top_k=top_k))
+                        errs.extend(page.validate_paragraph_origins(top_k=top_k, fail_on_first=fail_on_first))
 
                     if(check_y3 and check_origins):
-                        errs.extend(page.validate_y3_paragraph_origins())
+                        errs.extend(page.validate_y3_paragraph_origins(fail_on_first=fail_on_first))
 
                     if errs:
                         validationErrors[page.squid] = errs
@@ -158,7 +222,7 @@ def run_parse() -> None:
 
         if paragraph_cbor_file is not None:
             collector = ParagraphTextCollector(paragraphs_to_validate)
-            errsDict = collector.validate_all_paragraph_text(paragraph_cbor_file=paragraph_cbor_file) # type : List[Tuple[str, List[ValidationParagraphError]]]
+            errsDict = collector.validate_all_paragraph_text(paragraph_cbor_file=paragraph_cbor_file, fail_on_first=fail_on_first) # type : List[Tuple[str, List[ValidationParagraphError]]]
             validationParagraphsErrors = safe_group_list_by(errsDict)
 
             if (fail_on_first and errs):

@@ -97,7 +97,7 @@ class ParagraphTextCollector(object):
         return errs2
 
 
-    def validate_all_paragraph_text(self, paragraph_cbor_file) -> List[Tuple[str, List[ValidationIssue]]]:    # List (paraId, List[Errors])
+    def validate_all_paragraph_text(self, paragraph_cbor_file, fail_on_first:bool=False) -> List[Tuple[str, List[ValidationIssue]]]:    # List (paraId, List[Errors])
         """
         :param paragraph_cbor_file: Location of the paragraphCorpus.cbor file
         """

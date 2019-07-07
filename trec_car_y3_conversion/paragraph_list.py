@@ -6,14 +6,16 @@ from trec_car.read_data import iter_paragraphs
 
 
 def get_parser():
-    parser = argparse.ArgumentParser("y3_validate.py")
+    parser = argparse.ArgumentParser(description="Produce a list of valid paragraph ids from a paragraph-cbor file.")
     parser.add_argument("-o"
-                        , help = "Outfile"
+                        , help = "Output file"
+                        , metavar="FILE"
                         , required= True
                         )
 
     parser.add_argument("--paragraph-cbor"
                         , help = "If set, loads and checks paragraph text from the paragraph corpus .cbor file. Remark: This check will be time consuming."
+                        , metavar = "CBOR"
                         , required= True
                         )
 
