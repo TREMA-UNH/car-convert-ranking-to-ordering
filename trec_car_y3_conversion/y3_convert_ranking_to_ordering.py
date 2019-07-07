@@ -1,13 +1,17 @@
 #!/usr/bin/python3
 import itertools
-from typing import Union
-import argparse
 import os
+import sys
+import argparse
+
+from typing import List, Dict, Iterator, Optional, Any, Tuple, Iterable
 
 from trec_car.read_data import iter_paragraphs, ParaText, ParaLink
-from trec_car_y3_conversion.y3_data import *
+from trec_car_y3_conversion.run_file import RunFile, RunLine
+from trec_car_y3_conversion.y3_data import Page, Paragraph, ParagraphOrigin, RunPageKey, submission_to_json, \
+    OutlineReader
 
-
+from trec_car_y3_conversion.paragraph_text_collector import  ParagraphTextCollector
 
 
 class PageFacetCache():
@@ -178,52 +182,8 @@ class RunManager(object):
         :param paragraph_cbor_file: Location to paragraphCorpus.cbor file
         """
         pcollector = ParagraphTextCollector(self.paragraphs_to_retrieve)
-        pcollector.retrieve_paragraph_mappings(paragraph_cbor_file)
+        pcollector.update_all_paragraph_text(paragraph_cbor_file)
 
-
-
-
-class ParagraphTextCollector(object):
-    """
-    Retrieves text from paragraphCorpus.cbor file and adds it to the corresponding paragrpahs
-    """
-    def __init__(self, paragraphs_to_retrieve:Dict[str, List[Paragraph]])-> None:
-        self.paragraphs_to_retrieve = paragraphs_to_retrieve
-
-
-    def retrieve_paragraph_mappings(self, paragraph_cbor_file):
-        """
-        :param paragraph_cbor_file: Location of the paragraphCorpus.cbor file
-        """
-        counter = 0
-        seen = 0
-        total = len(self.paragraphs_to_retrieve)
-        with open(paragraph_cbor_file, 'rb') as f:
-            for p in iter_paragraphs(f):
-                counter += 1
-                if counter % 100000 == 0:
-                    print("(Searching paragraph cbor): {}".format(counter))
-
-                if p.para_id in self.paragraphs_to_retrieve:
-                    for p_to_be_updated in self.paragraphs_to_retrieve[p.para_id]:
-                        self.update_paragraph(p_to_be_updated, p.bodies)
-
-                    seen += 1
-                    if seen == total:
-                        break
-
-    def update_paragraph(self, p: Paragraph, pbodies:List[Union[ParaLink, ParaText]]):
-        """
-        :param p: Paragraph that we will be updating
-        :param pbodies:
-        """
-        for body in pbodies:
-            if isinstance(body, ParaLink):
-                body = ParBody(text=body.anchor_text, entity=body.pageid, link_section=body.link_section, entity_name=body.page)
-            elif isinstance(body, ParaText):
-                body = ParBody(text=body.get_text())
-
-            p.add_para_body(body)
 
 
 
@@ -265,13 +225,13 @@ def get_parser():
     parsed = parser.parse_args()
     return parsed.__dict__
 
-def group_pages_by_run_id(pages:Iterator[Page]) -> Iterator[Tuple[Any, Iterator[Page]]]:
+def group_pages_by_run_id(pages:Iterable[Page]) -> Iterator[Tuple[Any, Iterable[Page]]]:
     def keyfunc(p):
         return p.run_id
     return itertools.groupby(sorted(pages, key=keyfunc), key=keyfunc)
 
 
-def run_parse() -> None:
+def run_main() -> None:
     parsed = get_parser()
     outlines_cbor_file = parsed["outline_cbor"]  # type: str
     run_dir = parsed["run_directory"]  # type: Optional[str]
@@ -286,25 +246,29 @@ def run_parse() -> None:
 
     run_manager = RunManager(outline_cbor_file = outlines_cbor_file)
 
-    # After parsing run files, convert lines of these files into pages
+    # After parsing run files, convert lines into paragraphs per facet (pageFacetCache)
     for run in load_runs(run_dir, run_file, run_name, top_k):
         for run_line in run.runlines:
             run_manager.convert_run_line(run_line)
 
 
+    # use pageFacetCache to populate the paragraphs field of the underlying page
     run_manager.populated_pages = { key: pageCache.populate_paragraphs(top_k)
                                    for key, pageCache in run_manager.pageCaches.items()}
 
-    for page in run_manager.populated_pages.values():
-        for para in page.paragraphs:
-            run_manager.register_paragraph(para)
 
+    # if  paragraph text is requested, register all paragraph_ids, then retrieve text form paragraph-cbor file.
     if (paragraph_cbor_file is not None):
+        for page in run_manager.populated_pages.values():
+            for para in page.paragraphs:
+                run_manager.register_paragraph(para)
         run_manager.retrieve_text(paragraph_cbor_file)
 
 
-    if not os.path.exists(ouput_dir+"/"):
-        os.mkdir(ouput_dir+"/")
+
+    # Write populated, text filled pages to output directory in JSON format.
+    if not os.path.exists(ouput_dir + "/"):
+        os.mkdir(ouput_dir + "/")
 
     for run_id, pages in group_pages_by_run_id(run_manager.populated_pages.values()):
         out_name = ouput_dir+"/" + run_id + ".jsonl"
@@ -312,7 +276,7 @@ def run_parse() -> None:
             f.write(submission_to_json(pages))
 
 
-def load_runs(run_dir, run_file, run_name, top_k):
+def load_runs(run_dir:Optional[str], run_file:Optional[str], run_name:Optional[str], top_k:int)-> List[RunFile]:
     runs = []  # type: List[RunFile]
     if run_dir is not None:
         for run_loc in os.listdir(run_dir):
@@ -323,7 +287,7 @@ def load_runs(run_dir, run_file, run_name, top_k):
 
 
 if __name__ == '__main__':
-    run_parse()
+    run_main()
 
 
 
