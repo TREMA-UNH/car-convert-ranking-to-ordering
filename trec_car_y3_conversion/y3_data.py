@@ -12,6 +12,11 @@ from trec_car.read_data import iter_outlines, ParaText, ParaLink
 
 
 def safe_group_by(pairs:Iterator[Tuple[str,Any]])->Dict[str,List[Any]]:
+    """
+        performs a group_by on an unsorted list of key-value pairs. Values of duplicate keys will be accumulated into list.
+        :param pairs: list of (key, value)
+    """
+
     res = {} # type: Dict[str,List[Any]]
     for (k,v) in pairs:
         if k  not in res:
@@ -20,6 +25,10 @@ def safe_group_by(pairs:Iterator[Tuple[str,Any]])->Dict[str,List[Any]]:
     return res
 
 def safe_group_list_by(pairs:Iterator[Tuple[str,List[Any]]])->Dict[str,List[Any]]:
+    """
+        performs a group_by on an unsorted list of key-list-value pairs. Valued of duplicate keys will be accumulated in concatenated lists
+        :param pairs: list of (key, list of values)
+    """
     res = {} # type: Dict[str,List[Any]]
     for (k,lst) in pairs:
         if k  not in res:
@@ -32,9 +41,15 @@ def safe_group_list_by(pairs:Iterator[Tuple[str,List[Any]]])->Dict[str,List[Any]
 
 # ---------------------------- CBOR Outline Parser ----------------------------
 class OutlineReader(object):
-
+    """
+    Initializes pages from TREC CAR outlines
+    """
     @staticmethod
     def outline_to_page(outline):
+        """
+        Converts TREC CAR outlines into partially filled pages. (page prototypes)
+        :param outline TREC CAR outline
+        """
         # todo adjust for hierarchical sections using outline.flat_headings_list
         query_facets = [QueryFacet(facet_id=outline.page_id+"/"+section.headingId, heading=section.heading) for section in outline.child_sections]
 
@@ -44,6 +59,7 @@ class OutlineReader(object):
 
     @staticmethod
     def initialize_pages(f):
+        """ Bulk conversion """
         return [OutlineReader.outline_to_page(outline) for outline in iter_outlines(f)]
 
 
@@ -54,10 +70,12 @@ class Jsonable(object):
     """
     @abstractmethod
     def to_json(self)-> dict:
+        """ Produces dictionary representation of the json output"""
         pass
 
     @staticmethod
     def from_json(dict) -> "Jsonable":
+        """ Construct this object from a dictionary/json represenation """
         raise RuntimeError("Must call from_json of implementing class")
 
 
@@ -84,6 +102,7 @@ class JsonParsingError(BaseException):
 
 
 class ValidationIssue(BaseException):
+    """ Base class for validation issues. """
     @abstractmethod
     def get_msg(self) ->str:
         pass
@@ -103,6 +122,7 @@ class ValidationIssue(BaseException):
 
 
 class ErrorCollector(object):
+    """ Collector for page/paragraph specific validation issues"""
     def __init__(self, pageData : Optional["Page"] = None, paragraphData : Optional["Paragraph"] = None)->None:
         self.errors = [] # type: List[ValidationIssue]
 
@@ -111,9 +131,9 @@ class ErrorCollector(object):
 
     def addValidationError(self, message:str, data: Optional["Page"]=None, is_warning:bool=False) -> None:
         if is_warning:
-            self.errors.append(ValidationWarning(message=message, data= data if data else self.pageData))
+            self.errors.append(ValidationPageWarning(message=message, data= data if data else self.pageData))
         else:
-            self.errors.append(ValidationError(message=message, data= data if data else self.pageData))
+            self.errors.append(ValidationPageError(message=message, data= data if data else self.pageData))
 
     def addParagraphValidationError(self, message:str, data: "Paragraph", is_warning:bool=False)->None:
         self.errors.append(ValidationParagraphError(message=message, data= data if data else self.paragraphData))
@@ -121,11 +141,11 @@ class ErrorCollector(object):
 
 
 
-class ValidationError(ValidationIssue):
-    """ Data validation failed. """
+class ValidationPageError(ValidationIssue):
+    """ Data validation of Page failed. Not acceptable. """
     def __init__(self, message:str, data:"Page")->None:
         self.message = "ERROR: " +message
-        super(ValidationError, self).__init__(self.message+ "Problematic JSON:\n"+ (pprint.pformat(data.to_json(suppress_validation = True), indent = 4, width = 80)))
+        super(ValidationPageError, self).__init__(self.message + "Problematic JSON:\n" + (pprint.pformat(data.to_json(suppress_validation = True), indent = 4, width = 80)))
         self.data = data
         self.squid = data.squid
 
@@ -144,11 +164,11 @@ class ValidationError(ValidationIssue):
     def get_id(self):
         return self.squid
 
-class ValidationWarning(ValidationIssue):
-    """ Data validation warning. """
+class ValidationPageWarning(ValidationIssue):
+    """ Data validation warning. Object still acceptable, but its a sign of a problem that should be addressed. """
     def __init__(self, message:str, data:"Page")->None:
         self.message = "WARNING: "+message
-        super(ValidationWarning, self).__init__(self.message+ "Problematic JSON:\n"+ (pprint.pformat(data, indent = 4, width = 80)))
+        super(ValidationPageWarning, self).__init__(self.message + "Problematic JSON:\n" + (pprint.pformat(data, indent = 4, width = 80)))
         self.data = data
         self.squid = data.squid
 
@@ -169,7 +189,7 @@ class ValidationWarning(ValidationIssue):
 
 
 class ValidationParagraphError(ValidationIssue):
-    """ Data validation failed. """
+    """ Data validation  for Paragraph failed. """
     def __init__(self, message:str, data:"Paragraph")->None:
         self.message = "ERROR: " +message
         super(ValidationParagraphError, self).__init__(self.message+ "Problematic JSON:\n"+ (pprint.pformat(data.to_json(), indent = 4, width = 80)))

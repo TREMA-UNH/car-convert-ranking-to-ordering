@@ -6,7 +6,7 @@ import argparse
 import os
 
 
-from trec_car_y3_conversion.y3_data import ValidationWarning, ValidationError, Page, JsonParsingError, OutlineReader, \
+from trec_car_y3_conversion.y3_data import ValidationPageWarning, ValidationPageError, Page, JsonParsingError, OutlineReader, \
     Paragraph, safe_group_by, ValidationIssue, safe_group_list_by
 
 from trec_car_y3_conversion.paragraph_text_collector import ValidationParagraphError, ParagraphTextCollector
@@ -106,7 +106,7 @@ def run_parse() -> None:
 
     def validate_y3(json_loc):
         jsonErrors = [] # type: List[JsonParsingError]
-        validationErrors = dict() # type: Dict[str, List[Union[ValidationError, ValidationWarning]]]
+        validationErrors = dict() # type: Dict[str, List[Union[ValidationPageError, ValidationPageWarning]]]
         validationParagraphsErrors = dict() # type: Dict[str, List[ValidationParagraphError]]
         found_squids = {} # type: Dict[str, Page]
         required_squids = {page.squid: page for page in page_prototypes.values()} # type: Dict[str, Page]
@@ -136,7 +136,7 @@ def run_parse() -> None:
                         validationErrors[page.squid] = errs
 
                     if (fail_on_first):
-                            real_errors = [err for err in errs if isinstance(err, ValidationError)]
+                            real_errors = [err for err in errs if isinstance(err, ValidationPageError)]
                             if (real_errors):
                                 raise real_errors[0]
 
@@ -150,7 +150,7 @@ def run_parse() -> None:
                     if(fail_on_first):
                         raise ex
                     jsonErrors.append(ex)
-                except ValidationError as ex:
+                except ValidationPageError as ex:
                     if(fail_on_first):
                         raise ex
 
@@ -179,12 +179,12 @@ def run_parse() -> None:
         for squid in found_squids.keys() - (required_squids.keys()):
             if squid not in validationErrors:
                 validationErrors[squid] = []
-            validationErrors[squid].append(ValidationError(message = "Page with %s not in the outline file and therefore must not be submitted." % squid, data = found_squids[squid]))
+            validationErrors[squid].append(ValidationPageError(message ="Page with %s not in the outline file and therefore must not be submitted." % squid, data = found_squids[squid]))
 
         for squid in required_squids.keys() - (found_squids.keys()):
             if squid not in validationErrors:
                 validationErrors[squid] = []
-            validationErrors[squid].append(ValidationError(message = "Page with %s is missing, but is contained in the outline file. Page with this squid must be submitted." % squid, data = required_squids[squid]))
+            validationErrors[squid].append(ValidationPageError(message ="Page with %s is missing, but is contained in the outline file. Page with this squid must be submitted." % squid, data = required_squids[squid]))
 
 
 
@@ -207,8 +207,7 @@ def run_parse() -> None:
 
         for (pid, errsList) in validationParagraphsErrors.items():
             print("\n\nValidation issues for paragraph %s:" % pid, file = sys.stderr)
-            for errs in errsList:
-                for err in errs:
+            for err in errsList:
                     print(err.get_msg(), file = sys.stderr)
                     if print_json:
                         print(err.problematic_json(), file = sys.stderr)
