@@ -99,7 +99,7 @@ def get_parser():
                         )
 
     parser.add_argument("--check-text-from-paragraph-id-list"
-                        , help = "If set, loads and checks paragraph text from paragraph-id list (produced by paragraph_list.py). (Only in effect when --check-text-from-paragraph-cbor is not set.)"
+                        , help = "If set, loads qand checks paragraph text from paragraph-id list (can be produced with :Qparagraph_id_list.py). (Only in effect when --check-text-from-paragraph-cbor is not set.)"
                         , metavar= "ID-FILE"
                         )
 
@@ -230,10 +230,10 @@ def run_parse() -> None:
 
         elif paragraph_id_file is not None:
             with open(paragraph_id_file,'r') as f:
-                paragraph_ids = set(f)
+                valid_paragraph_ids = {line.strip() for line in f if line.strip()}
 
                 collector = ParagraphTextCollector(paragraphs_to_validate)
-                errsDict = collector.validate_all_paragraph_ids(paragraph_ids=paragraph_ids)
+                errsDict = collector.validate_all_paragraph_ids(valid_paragraph_ids=valid_paragraph_ids)
                 validationParagraphsErrors = safe_group_list_by(errsDict)
 
                 if (fail_on_first and errs):

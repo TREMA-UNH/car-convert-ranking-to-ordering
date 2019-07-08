@@ -9,7 +9,7 @@ class ParagraphTextCollector(object):
     Retrieves text from paragraphCorpus.cbor file and adds it to the corresponding paragrpahs
     """
     def __init__(self, paragraphs_to_consider:Dict[str, List[Paragraph]])-> None:
-        self.validated_pids = {}   # type: Dict[str,bool]
+        self.confirmed_pids = {}   # type: Dict[str,bool]
         self.paragraphs_to_consider = paragraphs_to_consider   # type: Dict[str, List[Paragraph]]
 
 
@@ -71,26 +71,26 @@ class ParagraphTextCollector(object):
 
     # --- validation ----
 
-    def validate_all_paragraph_ids(self, paragraph_ids:Set[str]) -> List[Tuple[str, List[ValidationIssue ]]]:  # List (paraId, List[Errors])
+    def validate_all_paragraph_ids(self, valid_paragraph_ids:Set[str]) -> List[Tuple[str, List[ValidationIssue]]]:  # List (paraId, List[Errors])
         """
-        :param paragraph_ids: Location of the paragraphCorpus.cbor file
+        :param valid_paragraph_ids: Location of the paragraphCorpus.cbor file
         """
 
         if all (para.para_body == None for list in self.paragraphs_to_consider.values() for para in list):
             return []   # para_bodies are optional, in which case they must be None.
 
 
-        self.validated_pids = {pid:(pid in paragraph_ids) for pid in self.paragraphs_to_consider.keys()}
+        self.confirmed_pids = {pid:(pid in valid_paragraph_ids) for pid in self.paragraphs_to_consider.keys()}
 
 
 
         errs2 = []  # type: List[Tuple[str, List[ValidationIssue]]]
-        missing_pids = {pid for (pid, checked) in  self.validated_pids.items() if not checked}
+        missing_pids = {pid for (pid, checked) in self.confirmed_pids.items() if not checked}
         for pid in missing_pids:
             paragraphs = self.paragraphs_to_consider[pid]
             paragraph = paragraphs[0] # type: Paragraph
             validation_paragraph_error = ValidationParagraphError(
-                message="Not a valid paragraph id %s. Paragraph must be omitted from the submission." % paragraph.para_id,
+                message="Submission must only contain paragraphs from the paragraphCorpus, but paragraph id %s is not contained. Paragraph must be omitted from the submission." % paragraph.para_id,
                 data=paragraph)
             errs2.append((paragraph.para_id, [validation_paragraph_error]))
 
@@ -106,11 +106,11 @@ class ParagraphTextCollector(object):
             return []   # para_bodies are optional, in which case they must be None.
 
 
-        self.validated_pids = {pid:False for pid in self.paragraphs_to_consider.keys()}
+        self.confirmed_pids = {pid:False for pid in self.paragraphs_to_consider.keys()}
         errs = [(key,elist) for (key,elist) in self.iterate_paragraphs(paragraph_cbor_file, self.validate_paragraph_text, max_paras = None) if elist]
 
         errs2 = []
-        missing_pids = {pid for (pid, checked) in  self.validated_pids.items() if not checked}
+        missing_pids = {pid for (pid, checked) in self.confirmed_pids.items() if not checked}
         for pid in missing_pids:
             paragraphs = self.paragraphs_to_consider[pid]
             paragraph = paragraphs[0] # type: Paragraph
@@ -151,7 +151,7 @@ class ParagraphTextCollector(object):
                                                                                    p.para_id, str(p_ref.to_json()),
                                                                                    str(p.to_json())), p)
 
-            self.validated_pids[p.para_id]=True
+            self.confirmed_pids[p.para_id]=True
 
         return errs.errors
 

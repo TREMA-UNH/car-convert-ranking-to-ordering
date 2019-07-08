@@ -30,7 +30,9 @@ def create_para_id_list(paragraph_cbor_file:str)->List[str]:
 
 def write_para_id_set(outfile:str, para_ids:List[str])->None:
     with open(outfile, 'w') as f:
-        f.writelines(para_ids)
+        for id in para_ids:
+            f.write(id)
+            f.write('\n')
 
 def run_parse() -> None:
     parsed = get_parser()
