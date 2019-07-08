@@ -1,16 +1,17 @@
 #!/usr/bin/python3
 import json
 import sys
-from typing import Union, List, Dict, Optional, Tuple
+from typing import Union, List, Dict, Optional
 import argparse
 import os
 
-
+from trec_car_y3_conversion.utils import maybe_compressed_open, safe_group_list_by
 from trec_car_y3_conversion.y3_data import ValidationPageWarning, ValidationPageError, Page, JsonParsingError, OutlineReader, \
-    Paragraph, ValidationIssue, safe_group_list_by
+    Paragraph, ValidationIssue
 
 from trec_car_y3_conversion.paragraph_text_collector import ValidationParagraphError, ParagraphTextCollector
 
+default_paragraph_id_file_name="paragraph_ids.txt.xz"
 
 validation_rules = """
 VALIDATION RULES for TREC CAR Y3
@@ -99,7 +100,7 @@ def get_parser():
                         )
 
     parser.add_argument("--check-text-from-paragraph-id-list"
-                        , help = "If set, loads qand checks paragraph text from paragraph-id list (can be produced with :Qparagraph_id_list.py). (Only in effect when --check-text-from-paragraph-cbor is not set.)"
+                        , help = "If set, loads and checks paragraph-ids with list (*.txt / *.txt.xz). This list contains one id per line and can be produced with paragraph_id_list.py. (Only in effect when --check-text-from-paragraph-cbor is not set.)"
                         , metavar= "ID-FILE"
                         )
 
@@ -116,7 +117,7 @@ def get_parser():
 
 
     parser.add_argument("--submission-check-y3"
-                        , help = "Checks performed during TREC CAR Y3 upload. Equivalent to -k 20 --check-y3 --fail-on-first --check-text-from-paragraph-id-list paragraph_ids.txt"
+                        , help = "Checks performed during TREC CAR Y3 upload. Equivalent to -k 20 --check-y3 --fail-on-first --check-text-from-paragraph-id-list %s" % default_paragraph_id_file_name
                         , action = "store_true"
                         )
 
@@ -150,7 +151,7 @@ def run_parse() -> None:
     submission_check_y3 = parsed["submission_check_y3"] # type: bool
     if submission_check_y3:
         if not paragraph_id_file:
-            paragraph_id_file = "paragraph_ids.txt"
+            paragraph_id_file = default_paragraph_id_file_name
         if not os.path.isfile(paragraph_id_file):
             raise RuntimeError("Paragraph ID file needed but \"%s\" does not exist. Create with \"python3 paragraph_list.py --paragraph-cbor CBOR -o %s\"" % (paragraph_id_file, paragraph_id_file))
 
@@ -178,7 +179,8 @@ def run_parse() -> None:
 
         paragraphs_to_validate = {} # type: Dict[str, List[Paragraph]]
 
-        with open(json_loc,'r') as f:
+
+        with maybe_compressed_open(json_loc) as f:
             for line in f:
                 try:
                     page = Page.from_json(json.loads(line))
@@ -188,7 +190,7 @@ def run_parse() -> None:
                     errs.extend(page.validate_minimal_spec(fail_on_first=fail_on_first))
 
                     if(check_y3):
-                        errs.extend(page.validate_required_y3_spec(top_k=top_k, maxlen_run_id=8, fail_on_first=fail_on_first))
+                        errs.extend(page.validate_required_y3_spec(top_k=top_k, maxlen_run_id=15, fail_on_first=fail_on_first))
 
                     if(check_origins):
                         errs.extend(page.validate_paragraph_origins(top_k=top_k, fail_on_first=fail_on_first))
@@ -229,7 +231,7 @@ def run_parse() -> None:
                 raise errs[0]
 
         elif paragraph_id_file is not None:
-            with open(paragraph_id_file,'r') as f:
+            with maybe_compressed_open(paragraph_id_file) as f:
                 valid_paragraph_ids = {line.strip() for line in f if line.strip()}
 
                 collector = ParagraphTextCollector(paragraphs_to_validate)

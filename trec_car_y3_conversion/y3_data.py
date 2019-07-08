@@ -1,41 +1,16 @@
 #!/usr/bin/python3
 from abc import abstractmethod
-from typing import List, Dict, Set, Iterator, Optional, Any, TextIO, Tuple, Union, Iterable
+from typing import List, Dict, Set, Iterator, Optional, Any, TextIO, Union, Iterable
 import json
 import pprint
+
+from trec_car_y3_conversion.utils import safe_group_by
 
 """ Data Structures for Page loading, construction, population, and conversion to JSON.
 """
 
 
 from trec_car.read_data import iter_outlines, ParaText, ParaLink
-
-
-def safe_group_by(pairs:Iterator[Tuple[str,Any]])->Dict[str,List[Any]]:
-    """
-        performs a group_by on an unsorted list of key-value pairs. Values of duplicate keys will be accumulated into list.
-        :param pairs: list of (key, value)
-    """
-
-    res = {} # type: Dict[str,List[Any]]
-    for (k,v) in pairs:
-        if k  not in res:
-            res[k] = []
-        res[k].append(v)
-    return res
-
-def safe_group_list_by(pairs:Iterator[Tuple[str,List[Any]]])->Dict[str,List[Any]]:
-    """
-        performs a group_by on an unsorted list of key-list-value pairs. Valued of duplicate keys will be accumulated in concatenated lists
-        :param pairs: list of (key, list of values)
-    """
-    res = {} # type: Dict[str,List[Any]]
-    for (k,lst) in pairs:
-        if k  not in res:
-            res[k] = []
-
-        res[k].extend(lst)
-    return res
 
 
 
@@ -454,6 +429,10 @@ class Page(Jsonable):
         return not x or not isinstance(x, str) or len(x) == 0 or not (all(ord(c) < 128 for c in x))
 
     @staticmethod
+    def fail_alphanumeric_str(x):
+        return not x or not isinstance(x, str) or len(x) == 0 or not (all(c.isalnum() or c in "-_." for c in x)) or x.startswith('.')
+
+    @staticmethod
     def fail_str(x):
         return not x or not isinstance(x, str) or len(x) == 0
 
@@ -481,8 +460,8 @@ class Page(Jsonable):
 
         if Page.fail_ascii_str(self.squid):
             errs.addValidationError("Page squid %s (aka page id) of invalid type. Must be non-empty ASCII string."% self.squid)
-        if Page.fail_ascii_str(self.run_id):
-            errs.addValidationError("Run id %s for page %s of invalid type. Must be non-empty ASCII string."% (self.run_id, self.squid))
+        if Page.fail_alphanumeric_str(self.run_id):
+            errs.addValidationError("Run id %s for page %s of invalid type. Must be non-empty string containing only characters that are alphanumeric or \'-\', \'_\', \'.\' -- however cannot start with \'.\'!"% (self.run_id, self.squid))
         if not self.paragraphs:
             errs.addValidationError("Paragraphs for page %s is set to an empty list. Must be non-empty list of paragraphs."% (self.squid))
 

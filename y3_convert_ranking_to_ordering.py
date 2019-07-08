@@ -6,8 +6,9 @@ import argparse
 
 from typing import List, Dict, Iterator, Optional, Any, Tuple, Iterable
 
-from trec_car.read_data import iter_paragraphs, ParaText, ParaLink
+
 from trec_car_y3_conversion.run_file import RunFile, RunLine
+from trec_car_y3_conversion.utils import maybe_compressed_open
 from trec_car_y3_conversion.y3_data import Page, Paragraph, ParagraphOrigin, RunPageKey, submission_to_json, \
     OutlineReader
 
@@ -212,6 +213,10 @@ def get_parser():
                         , help = "overwrite run name in run-file with this one."
                         )
 
+    parser.add_argument("--compression"
+                        , help = "Compress written file with \'xz\', \'bz2\', or \'gz\'."
+                        )
+
     parser.add_argument("--include-text-from-paragraph-cbor"
                         , help = "If set, loads paragraph text from the paragraph corpus .cbor file."
                         )
@@ -238,10 +243,13 @@ def run_main() -> None:
     run_file = parsed["run_file"]  # type: Optional[str]
     run_name = parsed["run_name"]  # type: Optional[str]
     ouput_dir = parsed["output_directory"]  # type: str
+    compression= parsed["compression"]  # type: Optional[str]
 
     top_k = int(parsed["k"]) # type: int
     paragraph_cbor_file = parsed["include_text_from_paragraph_cbor"]  # type: Optional[str]
 
+    if Page.fail_alphanumeric_str(run_name):
+        raise RuntimeError("Run name %s of invalid type. Must be non-empty string containing only characters that are alphanumeric or \'-\', \'_\', \'.\' -- however cannot start with \'.\'!"% run_name)
 
 
     run_manager = RunManager(outline_cbor_file = outlines_cbor_file)
@@ -271,8 +279,8 @@ def run_main() -> None:
         os.mkdir(ouput_dir + "/")
 
     for run_id, pages in group_pages_by_run_id(run_manager.populated_pages.values()):
-        out_name = ouput_dir+"/" + run_id + ".jsonl"
-        with open(out_name, "w") as f:
+        out_name = ouput_dir+"/" + run_id + ".jsonl"  + ('.'+compression if compression else '')
+        with maybe_compressed_open(out_name, "wt") as f:
             f.write(submission_to_json(pages))
 
 

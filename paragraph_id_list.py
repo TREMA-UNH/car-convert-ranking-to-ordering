@@ -3,6 +3,7 @@ from typing import  List
 import argparse
 
 from trec_car.read_data import iter_paragraphs
+from trec_car_y3_conversion.utils import maybe_compressed_open
 
 
 def get_parser():
@@ -29,7 +30,7 @@ def create_para_id_list(paragraph_cbor_file:str)->List[str]:
         return [p.para_id for p in iter_paragraphs(f)]
 
 def write_para_id_set(outfile:str, para_ids:List[str])->None:
-    with open(outfile, 'w') as f:
+    with maybe_compressed_open(outfile, mode = 'wt') as f:
         for id in para_ids:
             f.write(id)
             f.write('\n')

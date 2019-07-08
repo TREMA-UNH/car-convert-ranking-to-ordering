@@ -2,4 +2,4 @@
 
 __version__ = 1.0
 
-__all__ = ['run_file','y3_data', 'paragraph_text_collector']
+__all__ = ['utils','run_file','y3_data', 'paragraph_text_collector']
