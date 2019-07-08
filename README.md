@@ -68,6 +68,17 @@ optional arguments:
 
 ```
 
+Example 1: (Minimal TREC CAR Y3 submission)
+
+ `python3 y3_convert_ranking_to_ordering.py --outline-cbor ./benchmarkY3test.public/benchmarkY3test.cbor-outlines.cbor  --output-directory ../populated/  --run-file bm25.run --compression gz --run-name TEAM-bm25`
+
+
+Example 2: (Includes text in para_bodies from paragraph-cbor)
+
+```
+y3_convert_ranking_to_ordering.py --outline-cbor ./benchmarkY3test.public/benchmarkY3test.cbor-outlines.cbor --output-directory ../populated/  --run-file ../sectionPath-bm25-none.run --run-name TEAM-bm25 --compression gz --include-text-from-paragraph-cbor ./paragraphCorpus/dedup.articles-paragraphs.cbor
+```
+
 
 # Validating TREC CAR Y3 Submission Files
 
@@ -126,6 +137,25 @@ optional arguments:
                         stderr)
 ```
 
+
+
+Example 1 (requires file paragraph_ids.txt.xz in the working directory):
+
+`python3 y3_validate_submission.py --json-file ../populated/TEAM-bm25.jsonl.gz --submission-check-y3 --outline-cbor ../benchmarkY3test.public/benchmarkY3test.cbor-outlines.cbor`
+
+Example 2:
+
+```
+python3 y3_validate_submission.py --json-file ../populated/TEAM-bm25.jsonl.gz --check-y3 --check-origins --print-json --outline-cbor ../benchmarkY3test.public/benchmarkY3test.cbor-outlines.cbor --check-text-from-paragraph-cbor ../paragraphCorpus/dedup.articles-paragraphs.cbor
+```
+
+
+
+
+
+
+
+
 VALIDATION RULES for TREC CAR Y3:
 
 
@@ -179,4 +209,7 @@ optional arguments:
                         If set, loads and checks paragraph text from the
                         paragraph corpus .cbor file. Remark: This check will
                         be time consuming.
+
 ```
+
+Example: `python3 paragraph_id_list.py --paragraph-cbor ./paragraphCorpus/dedup.articles-paragraphs.cbor -o paragraph_ids.txt.xz`
