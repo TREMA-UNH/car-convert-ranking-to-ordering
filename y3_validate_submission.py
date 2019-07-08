@@ -44,17 +44,23 @@ Further requirements for Y3 submissions
 
 - All page squids must start with the proper namespace, i.e., 'tqa2:`. They cannot contain `%20` symbols, because these were only used in Y1 and Y2 -- not in Y3!
 
-- Run ids must not contain more than 8 ascii characters. (please include an abbreviation of your team name)
+- Run ids must not contain more than 15 alpha-numeric characters including "_-.", but cannot start with '.'. (Please include an abbreviation of your team name!)
 
-
-- Only 20 paragraphs must be givem. We strongly encourage to provide exactly 20 paragraphs!
+- Maximal 20 paragraphs can be givem. We strongly encourage to provide exactly 20 paragraphs!
 
 """
 
 def get_parser():
 
 
-    parser = argparse.ArgumentParser(description="Validate a TREC CAR Y3 submission of populated pages. ")
+    parser = argparse.ArgumentParser(description=
+                                     """Validate JSON-L submission files for TREC CAR Y3 of populated pages
+                                     against an outline-cbor file and paragraph cbor file (or optional, paragraph-id-list).
+                                     Optional fields such as "para_body" and "paragraph_origins" can be validated as well.
+                                     Strict validation for TREC CAR Y3 squids (stable query unique ids) can be enabled or disabled.
+                                     The script provides different validation modes, such as "fail-on-first", "print-json", and "confirm-correct".
+                                     Validation errors and warnings will be printed on stdout. If no output is generated, then the file is correct.  
+                                     """ )
 
 
 
@@ -64,10 +70,10 @@ def get_parser():
                         )
 
 
-    parser.add_argument("--y3-file"
+    parser.add_argument("--json-file"
                         , help = "Single Json-lines file CAR Y3 format."
                         )
-    parser.add_argument("--y3-dir"
+    parser.add_argument("--json-dir"
                         , help = "Directory of Json-lines file CAR Y3 format."
                         )
 
@@ -85,7 +91,7 @@ def get_parser():
                         )
 
     parser.add_argument("--check-y3"
-                        , help = "Activate strict checks for TREC CAR Y3 submission."
+                        , help = "Activate strict checks for TREC CAR Y3 submission (including squid ids)."
                         , action = "store_true"
                         )
 
@@ -121,6 +127,11 @@ def get_parser():
                         , action = "store_true"
                         )
 
+    parser.add_argument("--confirm-correct"
+                        , help = "Confirms if the file is correct on stdout. (Otherwise, files are correct when no output is generated on stderr)"
+                        , action = "store_true"
+                        )
+
 
 
     parsed = parser.parse_args()
@@ -135,14 +146,15 @@ def run_parse() -> None:
 
 
     outlines_cbor_file = parsed["outline_cbor"]  # type: str
-    json_dir = parsed["y3_dir"]  # type: str
-    json_file = parsed["y3_file"]  # type: str
+    json_dir = parsed["json_dir"]  # type: str
+    json_file = parsed["json_file"]  # type: str
     print_json = parsed["print_json"] # type: bool
 
     fail_on_first = parsed["fail_on_first"] # type: bool
     top_k = int(parsed["k"]) # type: int
     check_y3 = parsed["check_y3"] # type: bool
     check_origins = parsed["check_origins"] # type: bool
+    confirm_correct = parsed["confirm_correct"] # type: bool
 
     paragraph_cbor_file = parsed["check_text_from_paragraph_cbor"]  # type: Optional[str]
     paragraph_id_file = parsed["check_text_from_paragraph_id_list"]  # type: Optional[str]
@@ -153,7 +165,7 @@ def run_parse() -> None:
         if not paragraph_id_file:
             paragraph_id_file = default_paragraph_id_file_name
         if not os.path.isfile(paragraph_id_file):
-            raise RuntimeError("Paragraph ID file needed but \"%s\" does not exist. Create with \"python3 paragraph_list.py --paragraph-cbor CBOR -o %s\"" % (paragraph_id_file, paragraph_id_file))
+            raise RuntimeError("Paragraph ID file needed but \"%s\" does not exist. Create with \"python3 paragraph_id_list.py --paragraph-cbor CBOR -o %s\"" % (paragraph_id_file, paragraph_id_file))
 
         top_k = 20
         check_y3 = True
@@ -278,6 +290,9 @@ def run_parse() -> None:
                     if print_json:
                         print(err.problematic_json(), file = sys.stderr)
 
+
+        if (confirm_correct and not jsonErrors and not validationErrors and not validationParagraphsErrors):
+            print("%s is in correct TREC CAR Y3 format." % json_loc)
 
     if json_dir:
         for json_loc in os.listdir(json_dir):

@@ -16,7 +16,7 @@ def maybe_compressed_open(loc:str, mode:str='rt')->TextIO:
     elif loc.endswith(".bz2"):
         return bz2.open(loc, mode=mode, encoding='utf-8')
     else:
-        return open(loc,'rt', encoding='utf-8')
+        return open(loc,mode = mode, encoding='utf-8')
 
 
 

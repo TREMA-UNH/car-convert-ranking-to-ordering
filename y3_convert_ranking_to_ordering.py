@@ -13,7 +13,16 @@ from trec_car_y3_conversion.y3_data import Page, submission_to_json
 
 
 def get_parser():
-    parser = argparse.ArgumentParser("y3_convert_ranking_to_ordering.py")
+    parser = argparse.ArgumentParser(description="""Converts section-level rankings into a TREC CAR Y3 page. 
+                                                     The top ranked passage for each section heading are concatenated
+                                                     in order to max out the budget of `top_k` passages per page.
+                                                     No further optimizations are carried out, meaning that the
+                                                     resulting page may contain duplicate paragraphs, and could start
+                                                     with a paragraph that is not suitable as introduction.
+                                                                                                          
+After running the script, the output-directory will contain multiple *.jsonl files,
+each named according to the `run-name` given in the trec run file or overwritten by the command line argument.                                                      
+                                                 """)
     parser.add_argument("--outline-cbor"
                         , help = "Path to an outline.cbor file"
                         , required= True
