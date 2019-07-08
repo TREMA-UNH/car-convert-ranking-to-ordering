@@ -84,6 +84,13 @@ y3_convert_ranking_to_ordering.py --outline-cbor ./benchmarkY3test.public/benchm
 
 # Validating TREC CAR Y3 Submission Files
 
+The validation script requires these resource files:
+
+ -  [paragraph_ids.txt.xz](http://trec-car.cs.unh.edu/datareleases/v2.3/paragraph_ids.txt.xz) the list of valid paragraph ids in the paragraphCorpus - must be in the working directory
+ -  benchmarkY3test.cbor-outlines.cbor from [benchmarkY3test.cbor-outlines.cbor](http://trec-car.cs.unh.edu/datareleases/v2.3/benchmarkY3test.public.tar.gz)
+ - optionally, for validation of para_bodies, the dedup.articles-paragraphs.cbor from the [paragraphCorpus](http://trec-car.cs.unh.edu/datareleases/v2.0/paragraphCorpus.v2.0.tar.xz)
+
+
 ```
 usage: y3_validate_submission.py [-h] [--print-validation-rules]
                                  [--json-file JSON_FILE] [--json-dir JSON_DIR]
@@ -141,16 +148,16 @@ optional arguments:
 
 
 
-Example 1 (requires file paragraph_ids.txt.xz in the working directory):
+Example 1 (requires file [paragraph_ids.txt.xz](http://trec-car.cs.unh.edu/datareleases/v2.3/paragraph_ids.txt.xz) in the working directory):
 
 ```
-python3 y3_validate_submission.py --json-file ../populated/TEAM-bm25.jsonl.gz --submission-check-y3 --outline-cbor ../benchmarkY3test.public/benchmarkY3test.cbor-outlines.cbor
+python3 y3_validate_submission.py --json-file ../populated/TEAM-bm25.jsonl.gz --submission-check-y3 --outline-cbor ./benchmarkY3test.public/benchmarkY3test.cbor-outlines.cbor
 ```
 
 Example 2:
 
 ```
-python3 y3_validate_submission.py --json-file ../populated/TEAM-bm25.jsonl.gz --check-y3 --check-origins --print-json --outline-cbor ../benchmarkY3test.public/benchmarkY3test.cbor-outlines.cbor --check-text-from-paragraph-cbor ../paragraphCorpus/dedup.articles-paragraphs.cbor
+python3 y3_validate_submission.py --json-file ../populated/TEAM-bm25.jsonl.gz --check-y3 --check-origins --print-json --outline-cbor ./benchmarkY3test.public/benchmarkY3test.cbor-outlines.cbor --check-text-from-paragraph-cbor ../paragraphCorpus/dedup.articles-paragraphs.cbor
 ```
 
 
