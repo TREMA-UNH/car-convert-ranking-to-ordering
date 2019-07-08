@@ -5,7 +5,7 @@ except ImportError:
 
 setup(
     name='trec-car-y3-conversion',
-    version='1.0',
+    version='2.3',
     packages=['trec_car_y3_conversion'],
     url='https://github.com/TREMA-UNH/car-convert-ranking-to-ordering',
     keywords=['wikipedia','complex answer retrieval','trec car'],
