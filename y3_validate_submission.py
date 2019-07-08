@@ -77,6 +77,11 @@ def get_parser():
                         , help = "Directory of Json-lines file CAR Y3 format."
                         )
 
+    parser.add_argument("--compression"
+                        , help = "If compression scheme is not clear from filename, it can be set via this flag. Valid options: gz, xz, bz2 -- otherwise assumed to be uncompressed."
+                        )
+
+
 
 
     parser.add_argument("--outline-cbor"
@@ -149,6 +154,7 @@ def run_parse() -> None:
     json_dir = parsed["json_dir"]  # type: str
     json_file = parsed["json_file"]  # type: str
     print_json = parsed["print_json"] # type: bool
+    compression = parsed["compression"] # type: Optional[str]
 
     fail_on_first = parsed["fail_on_first"] # type: bool
     top_k = int(parsed["k"]) # type: int
@@ -192,7 +198,7 @@ def run_parse() -> None:
         paragraphs_to_validate = {} # type: Dict[str, List[Paragraph]]
 
 
-        with maybe_compressed_open(json_loc) as f:
+        with maybe_compressed_open(json_loc, compression=compression) as f:
             for line in f:
                 try:
                     page = Page.from_json(json.loads(line))

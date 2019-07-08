@@ -1,19 +1,19 @@
 import bz2
 import gzip
 import lzma
-from typing import TextIO, Iterator, Tuple, Any, Dict, List
+from typing import TextIO, Iterator, Tuple, Any, Dict, List, Optional
 
 
-def maybe_compressed_open(loc:str, mode:str='rt')->TextIO:
+def maybe_compressed_open(loc:str, mode:str='rt', compression:Optional[str] = None)->TextIO:
     """
     Open file wit UTF-8, which may be compressed with gz, xz, bz2 or uncompressed.
     Default mode is 'rt', can be overwritten.
     """
-    if loc.endswith(".gz"):
+    if (not compression and loc.endswith(".gz")) or compression == "gz":
         return gzip.open(loc, mode=mode, encoding='utf-8')
-    elif loc.endswith(".xz"):
+    elif (not compression and loc.endswith(".xz")) or compression == "xz":
         return lzma.open(loc, mode=mode, encoding='utf-8')
-    elif loc.endswith(".bz2"):
+    elif (not compression and loc.endswith(".bz2")) or compression == "bz2":
         return bz2.open(loc, mode=mode, encoding='utf-8')
     else:
         return open(loc,mode = mode, encoding='utf-8')
