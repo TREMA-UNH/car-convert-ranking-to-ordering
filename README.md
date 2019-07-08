@@ -70,7 +70,9 @@ optional arguments:
 
 Example 1: (Minimal TREC CAR Y3 submission)
 
- `python3 y3_convert_ranking_to_ordering.py --outline-cbor ./benchmarkY3test.public/benchmarkY3test.cbor-outlines.cbor  --output-directory ../populated/  --run-file bm25.run --compression gz --run-name TEAM-bm25`
+```
+python3 y3_convert_ranking_to_ordering.py --outline-cbor ./benchmarkY3test.public/benchmarkY3test.cbor-outlines.cbor  --output-directory ../populated/  --run-file bm25.run --compression gz --run-name TEAM-bm25
+```
 
 
 Example 2: (Includes text in para_bodies from paragraph-cbor)
@@ -141,7 +143,9 @@ optional arguments:
 
 Example 1 (requires file paragraph_ids.txt.xz in the working directory):
 
-`python3 y3_validate_submission.py --json-file ../populated/TEAM-bm25.jsonl.gz --submission-check-y3 --outline-cbor ../benchmarkY3test.public/benchmarkY3test.cbor-outlines.cbor`
+```
+python3 y3_validate_submission.py --json-file ../populated/TEAM-bm25.jsonl.gz --submission-check-y3 --outline-cbor ../benchmarkY3test.public/benchmarkY3test.cbor-outlines.cbor
+```
 
 Example 2:
 
@@ -212,4 +216,8 @@ optional arguments:
 
 ```
 
-Example: `python3 paragraph_id_list.py --paragraph-cbor ./paragraphCorpus/dedup.articles-paragraphs.cbor -o paragraph_ids.txt.xz`
+Example:
+
+```
+python3 paragraph_id_list.py --paragraph-cbor ./paragraphCorpus/dedup.articles-paragraphs.cbor -o paragraph_ids.txt.xz
+```
