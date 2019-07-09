@@ -297,16 +297,23 @@ def run_parse() -> None:
                         print(err.problematic_json(), file = sys.stderr)
 
 
-        if (confirm_correct and not jsonErrors and not validationErrors and not validationParagraphsErrors):
+        is_correct = not (jsonErrors or validationErrors or validationParagraphsErrors)
+
+        if (confirm_correct and is_correct):
             print("%s is in correct TREC CAR Y3 format." % json_loc)
 
+        return is_correct
+
+    is_correct = True
     if json_dir:
         for json_loc in os.listdir(json_dir):
-            validate_y3(json_loc)
+            is_correct = is_correct and validate_y3(json_loc)
 
     if json_file:
-        validate_y3(json_file)
+        is_correct = is_correct and validate_y3(json_file)
 
+    if not is_correct:
+        sys.exit(1)
 
 if __name__ == '__main__':
     run_parse()
