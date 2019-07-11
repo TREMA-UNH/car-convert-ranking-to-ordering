@@ -523,7 +523,7 @@ class Page(Jsonable):
 
         return errs.errors
 
-    def validate_paragraph_origins(self, top_k:int, fail_on_first:bool=False)->List[ValidationIssue]:
+    def validate_paragraph_origins(self, top_k:int, fail_on_first:bool=False, must_exist:bool=False)->List[ValidationIssue]:
         """ Validation of paragraph origins, if provided.
         Paragraph origins are optional, but if given, they must be correct and consistent and using the right query name space (of squid).
         """
@@ -539,79 +539,82 @@ class Page(Jsonable):
             return "sort_by_rank\n" + "\n".join(lines)
 
         if not self.paragraph_origins:
-            errs.addValidationError("No paragraph origins defined for page %s"%self.squid, is_warning=True)
+            if must_exist:
+                errs.addValidationError("No paragraph origins defined for page %s"%self.squid, is_warning=True)
 
-        found_section_paths = {p.section_path for p in self.paragraph_origins}
-        required_section_paths = {qf.facet_id for qf in self.query_facets}
-        for spath in found_section_paths - required_section_paths:
-            errs.addValidationError("Found section_path %s in paragraph_origins that does not belong for a section path of page %s. Must not be included. " % (spath, self.squid))
+        else:
 
-        for spath in required_section_paths - found_section_paths:
-            errs.addValidationError("Section_path %s of page %s not found in paragraph_origins. Rankings for all headings must be included. " % (spath, self.squid), is_warning= True)
+            found_section_paths = {p.section_path for p in self.paragraph_origins}
+            required_section_paths = {qf.facet_id for qf in self.query_facets}
+            for spath in found_section_paths - required_section_paths:
+                errs.addValidationError("Found section_path %s in paragraph_origins that does not belong for a section path of page %s. Must not be included. " % (spath, self.squid))
 
-
-        for (spath, paras) in safe_group_by((p.section_path,p) for p in self.paragraph_origins).items():
-            if len(paras) > top_k:
-                errs.addValidationError("Paragraph_origins of section_path %s of page %s has %d entries, but must not include not than top_k=%d entries." % (spath, self.squid, len(paras), top_k))
-
-            if len(paras) < top_k:
-                errs.addValidationError("Paragraph_origins of section_path %s of page %s has %d entries, but should include exactly top_k=%d entries." % (spath, self.squid, len(paras), top_k), is_warning=True)
+            for spath in required_section_paths - found_section_paths:
+                errs.addValidationError("Section_path %s of page %s not found in paragraph_origins. Rankings for all headings must be included. " % (spath, self.squid), is_warning= True)
 
 
+            for (spath, paras) in safe_group_by((p.section_path,p) for p in self.paragraph_origins).items():
+                if len(paras) > top_k:
+                    errs.addValidationError("Paragraph_origins of section_path %s of page %s has %d entries, but must not include not than top_k=%d entries." % (spath, self.squid, len(paras), top_k))
+
+                if len(paras) < top_k:
+                    errs.addValidationError("Paragraph_origins of section_path %s of page %s has %d entries, but should include exactly top_k=%d entries." % (spath, self.squid, len(paras), top_k), is_warning=True)
 
 
 
-        # Rank information is optional. If given perform these checks.
-        if any(p.rank is not None for p in self.paragraph_origins):
-            if( not all (p.rank is not None for p in self.paragraph_origins)):
-                errs.addValidationError("Some paragraph_origins for page %s include \'rank\' information, but not all entries. Must either be omitted or provided for all paragraph_origins."%(self.squid), is_warning= True)
-
-            for p in self.paragraph_origins:
-                if p.rank is not None and not p.rank >= 1:
-                    errs.addValidationError("Rank of paragraph_origins must be 1 or larger, but paragraph %s has rank %d on page %s. \n" %(p.para_id,p.rank, self.squid))
 
 
-            for spath in found_section_paths:
-                origins_for_spath = [p for p in self.paragraph_origins if p.section_path == spath]
-                sort_by_score = sorted(origins_for_spath.copy(), key= lambda p: - p.rank_score)
-                sort_by_rank = sorted(origins_for_spath.copy(), key= lambda p: -1 if p.rank is None else p.rank)
+            # Rank information is optional. If given perform these checks.
+            if any(p.rank is not None for p in self.paragraph_origins):
+                if( not all (p.rank is not None for p in self.paragraph_origins)):
+                    errs.addValidationError("Some paragraph_origins for page %s include \'rank\' information, but not all entries. Must either be omitted or provided for all paragraph_origins."%(self.squid), is_warning= True)
 
-                skip_rest=False
-                for (p1,p2) in zip(sort_by_score, sort_by_rank):
-                    if (not skip_rest and (not p1.para_id == p2.para_id)):
-                        errs.addValidationError("Order of paragraph_origins by rank and by rank_score differ for "
-                                                "paragraphs %s and %s for section_path %s on page %s. \n" %(p1.para_id,p2.para_id,spath, self.squid)
-                                                + pretty2(sort_by_score,sort_by_rank))
-                        skip_rest = True
+                for p in self.paragraph_origins:
+                    if p.rank is not None and not p.rank >= 1:
+                        errs.addValidationError("Rank of paragraph_origins must be 1 or larger, but paragraph %s has rank %d on page %s. \n" %(p.para_id,p.rank, self.squid))
 
-                skip_rest=False
-                last_rank = None
-                for (p1,p2) in zip(sort_by_score, sort_by_rank):
-                    if( not skip_rest and (last_rank is not None and p2.rank == last_rank)):
-                        errs.addValidationError("Same rank %d is used for multiple paragraph_origin "
-                                                "section_path %s on page %s. \n" %(last_rank, spath, self.squid)
-                                                + pretty(sort_by_rank))
-                        skip_rest = True
-                    last_rank = p2.rank
+
+                for spath in found_section_paths:
+                    origins_for_spath = [p for p in self.paragraph_origins if p.section_path == spath]
+                    sort_by_score = sorted(origins_for_spath.copy(), key= lambda p: - p.rank_score)
+                    sort_by_rank = sorted(origins_for_spath.copy(), key= lambda p: -1 if p.rank is None else p.rank)
+
+                    skip_rest=False
+                    for (p1,p2) in zip(sort_by_score, sort_by_rank):
+                        if (not skip_rest and (not p1.para_id == p2.para_id)):
+                            errs.addValidationError("Order of paragraph_origins by rank and by rank_score differ for "
+                                                    "paragraphs %s and %s for section_path %s on page %s. \n" %(p1.para_id,p2.para_id,spath, self.squid)
+                                                    + pretty2(sort_by_score,sort_by_rank))
+                            skip_rest = True
+
+                    skip_rest=False
+                    last_rank = None
+                    for (p1,p2) in zip(sort_by_score, sort_by_rank):
+                        if( not skip_rest and (last_rank is not None and p2.rank == last_rank)):
+                            errs.addValidationError("Same rank %d is used for multiple paragraph_origin "
+                                                    "section_path %s on page %s. \n" %(last_rank, spath, self.squid)
+                                                    + pretty(sort_by_rank))
+                            skip_rest = True
+                        last_rank = p2.rank
 
 
         return errs.errors
 
 
-    def validate_y3_paragraph_origins(self, fail_on_first:bool=False)->List[ValidationIssue]:
+    def validate_y3_paragraph_origins(self, fail_on_first:bool=False, must_exist:bool=False)->List[ValidationIssue]:
         """ Validation of paragraph origins, if provided.
         Paragraph origins are optional, but if given, they must be correct and consistent and using the right query name space (of squid).
         """
 
         errs = ErrorCollector(pageData= self, fail_on_first=fail_on_first)
 
-        def pretty2(sort_by_score:List[ParagraphOrigin],sort_by_rank:List[ParagraphOrigin])->str:
-            lines = ["%s\t%s"%(str(p1.to_json()), str(p2.to_json()))  for (p1,p2) in zip(sort_by_score, sort_by_rank)]
-            return "sort_by_score\tsort_by_rank\n" + "\n".join(lines)
-
-        def pretty(sort_by_rank:List[ParagraphOrigin])->str:
-            lines = [str(p1.to_json()) for p1 in sort_by_rank]
-            return "sort_by_rank\n" + "\n".join(lines)
+        # def pretty2(sort_by_score:List[ParagraphOrigin],sort_by_rank:List[ParagraphOrigin])->str:
+        #     lines = ["%s\t%s"%(str(p1.to_json()), str(p2.to_json()))  for (p1,p2) in zip(sort_by_score, sort_by_rank)]
+        #     return "sort_by_score\tsort_by_rank\n" + "\n".join(lines)
+        #
+        # def pretty(sort_by_rank:List[ParagraphOrigin])->str:
+        #     lines = [str(p1.to_json()) for p1 in sort_by_rank]
+        #     return "sort_by_rank\n" + "\n".join(lines)
 
 
         for paragraph in self.paragraph_origins:

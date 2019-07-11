@@ -171,7 +171,7 @@ def run_parse() -> None:
         if not paragraph_id_file:
             paragraph_id_file = default_paragraph_id_file_name
         if not os.path.isfile(paragraph_id_file):
-            raise RuntimeError("Paragraph ID file needed but \"%s\" does not exist. Create with \"python3 paragraph_id_list.py --paragraph-cbor CBOR -o %s\"" % (paragraph_id_file, paragraph_id_file))
+            raise RuntimeError("Paragraph ID file needed but \"%s\" does not exist. Set with filename with --check-text-from-paragraph-id-list or create with \"python3 paragraph_id_list.py --paragraph-cbor CBOR -o %s\"" % (paragraph_id_file, paragraph_id_file))
 
         top_k = 20
         check_y3 = True
@@ -207,14 +207,13 @@ def run_parse() -> None:
                     errs = [] #type: List[ValidationIssue]
                     errs.extend(page.validate_minimal_spec(fail_on_first=fail_on_first))
 
+                    errs.extend(page.validate_paragraph_origins(top_k=top_k, fail_on_first=fail_on_first, must_exist = check_origins))
+
                     if(check_y3):
                         errs.extend(page.validate_required_y3_spec(top_k=top_k, maxlen_run_id=15, fail_on_first=fail_on_first))
+                        errs.extend(page.validate_y3_paragraph_origins(fail_on_first=fail_on_first, must_exist = check_origins))
 
-                    if(check_origins):
-                        errs.extend(page.validate_paragraph_origins(top_k=top_k, fail_on_first=fail_on_first))
 
-                    if(check_y3 and check_origins):
-                        errs.extend(page.validate_y3_paragraph_origins(fail_on_first=fail_on_first))
 
                     if errs:
                         validationErrors[page.squid] = errs
