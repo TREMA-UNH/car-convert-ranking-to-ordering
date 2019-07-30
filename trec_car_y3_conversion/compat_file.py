@@ -4,7 +4,7 @@ from typing import List, TextIO
 
 
 class CompatEntry(object):
-    def __init__(self, sectionId:str, y2SectionId:str, y2PageTitle:str, y2Heading:str, pageTitle:str, headings:str,  keywords:List[str]):
+    def __init__(self, sectionId:str, y2SectionId:str, y2PageTitle:str, y2Heading:str, pageTitle:str, headings:str,  keywords:List[str])->None:
         self.keywords = keywords
         self.headings = headings
         self.pageTitle = pageTitle

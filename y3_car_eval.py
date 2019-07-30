@@ -8,6 +8,8 @@ from typing import List, Iterator, Optional, Any, Tuple, Iterable, Dict
 
 import numpy as np
 
+from trec_car import read_data
+from trec_car.read_data import iter_pages
 from trec_car_y3_conversion.compat_file import load_compat_file
 from trec_car_y3_conversion.qrel_file import QrelFile
 from trec_car_y3_conversion.utils import maybe_compressed_open, safe_group_by
@@ -32,7 +34,6 @@ def get_parser():
 
     parser.add_argument("--qrels"
                         , help = "Qrel file that contains the ground truth facet relevance."
-                        , required= True
                         )
 
     parser.add_argument("--compat"
@@ -42,6 +43,11 @@ def get_parser():
     parser.add_argument("--max-relevance"
                         , help = "Maximum relevance score possible (according to qrels). If omitted chosen by max value in qrels."
                         )
+
+    parser.add_argument("--gold-pages"
+                        , help = "Pages file containing gold (ground truth) articles with the correct paragraph sequence."
+                        )
+
 
 
     parsed = parser.parse_args()
@@ -75,6 +81,14 @@ def relevance_score(para:Paragraph, facets:Optional[List[Tuple[str,int]]], max_p
         relevances = [rel for qid, rel in facets  if rel > 0]
         rel = 0 if not relevances else np.max(relevances)
         return float(rel) / float(max_possible_relevance)
+
+POSITION_METRIC = "positiondistance"
+def position_score(para1:Paragraph, positions1:List[int], para2:Paragraph, positions2:List[int], max_penalty:int)->float:
+    if not positions1 or not positions2:
+        return float(max_penalty)
+    else:
+        score = min( np.abs(pos1-pos2) for pos1 in positions1 for pos2 in positions2)
+        return float(score)
 
 
 
@@ -120,6 +134,8 @@ class PageRelevanceCache():
             self.paragraph_positions[para_id]=[]
         self.paragraph_positions[para_id].append(position)
 
+    def set_paragraph_position_list(self, position_list:Iterator[Tuple[str, int]])->None:
+        self.paragraph_positions = safe_group_by(position_list)
 
     def add_paragraph_transition(self, transition_id:str, relevance:int)->None:
         if self.paragraph_transitions is None:
@@ -140,10 +156,7 @@ class PageRelevanceCache():
             if prev_para:
                 score = facet_score(prev_para, self.paragraph_facets.get(prev_para.para_id), para, self.paragraph_facets.get(para.para_id))
                 facet_scores.append(score)
-
             prev_para = para
-
-
         return PageEval(squid = page.squid, run_id= page.run_id, metric = FACET_METRIC, score = np.mean(facet_scores))
 
     def eval_relevance_score(self, page:Page) -> PageEval:
@@ -151,13 +164,40 @@ class PageRelevanceCache():
         for para in page.paragraphs:
             score = relevance_score(para, self.paragraph_facets.get(para.para_id), max_possible_relevance= self.max_possible_relevance)
             relevance_scores.append(score)
-
-
         return PageEval(squid = page.squid, run_id= page.run_id, metric = RELEVANCE_METRIC, score = np.mean(relevance_scores))
 
-    def eval_all(self, page:Page)->List[PageEval]:
-        return [self.eval_facet_score(page), self.eval_relevance_score(page)]
+    def eval_position_score(self, page:Page) -> PageEval:
+        prev_para = None
+        position_scores = [] # type: List[float]
+        for para in page.paragraphs:
+            if prev_para:
+                score = position_score(prev_para, self.paragraph_positions.get(prev_para.para_id), para, self.paragraph_positions.get(para.para_id), max_penalty=1000)  #todo set max_penalty to gold-length
+                position_scores.append(score)
+            prev_para = para
+        return PageEval(squid = page.squid, run_id= page.run_id, metric = POSITION_METRIC, score = np.mean(position_scores))
 
+
+    def eval_all(self, page:Page)->List[PageEval]:
+        return [self.eval_facet_score(page), self.eval_relevance_score(page), self.eval_position_score(page)]
+
+
+def flat_paragraphs(goldpage:read_data.Page)->List[str]:  # list of paragraph id
+
+    def flat_list(child_list):
+        paras = []
+        for child in child_list:
+            paras.extend(flat_child(child))
+        return paras
+
+    def flat_child(gold_child: read_data.PageSkeleton)->List[str]:
+        if isinstance(gold_child, read_data.Section):
+            return flat_list(gold_child.children)
+        elif isinstance(gold_child, read_data.Paragraph):
+            return [gold_child.para_id]
+        else:
+            return []
+
+    return flat_child(goldpage.skeleton)
 
 
 
@@ -172,9 +212,11 @@ def eval_main() -> None:
     compat_file = parsed["compat"]  # type: str
     max_possible_relevance = parsed["max_relevance"] # type:int
 
+    gold_pages_file = parsed["gold_pages"]  # type: str
 
-    eval_data = dict() # type: dict[str, List[PageEval]] # runName
-    relevance_cache = dict() # type: dict[str, PageRelevanceCache]
+
+    eval_data = dict() # type: Dict[str, List[PageEval]] # runName
+    relevance_cache = dict() # type: Dict[str, PageRelevanceCache]
 
     compat_y2_to_y3 = {entry.y2SectionId: entry.sectionId for entry in load_compat_file(compat_file)}
     # compat_y3_to_y2 = [(entry.sectionId, entry.y2SectionId) for entry in load_compat_file(compat_file)]
@@ -193,6 +235,11 @@ def eval_main() -> None:
         pageCache = relevance_cache[squid]
         for qline in qrel_lines:
             pageCache.add_paragraph_facet(qid = qline.qid, para_id= qline.doc_id, relevance = qline.relevance)
+
+    with open(gold_pages_file, 'rb') as gold_pages_handle:
+        for goldpage in iter_pages(gold_pages_handle):
+            gold_paragraph_sequence = flat_paragraphs(goldpage)
+            relevance_cache[goldpage.page_id].set_paragraph_position_list( zip(gold_paragraph_sequence, range(1, len(gold_paragraph_sequence))))
 
 
     # todo rundir
