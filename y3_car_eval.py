@@ -8,6 +8,7 @@ from typing import List, Iterator, Optional, Any, Tuple, Iterable, Dict
 
 import numpy as np
 
+from trec_car_y3_conversion.compat_file import load_compat_file
 from trec_car_y3_conversion.qrel_file import QrelFile
 from trec_car_y3_conversion.utils import maybe_compressed_open, safe_group_by
 from trec_car_y3_conversion.y3_data import Page, OutlineReader, Paragraph
@@ -31,6 +32,15 @@ def get_parser():
 
     parser.add_argument("--qrels"
                         , help = "Qrel file that contains the ground truth facet relevance."
+                        , required= True
+                        )
+
+    parser.add_argument("--compat"
+                        , help = "Compat files for benchmarkY3train to use benchmarkY2test qrel data."
+                        )
+
+    parser.add_argument("--max-relevance"
+                        , help = "Maximum relevance score possible (according to qrels). If omitted chosen by max value in qrels."
                         )
 
 
@@ -58,12 +68,13 @@ def facet_score(para1:Paragraph, facets1:Optional[List[Tuple[str,int]]], para2:P
             return 0.0
 
 RELEVANCE_METRIC = "relevance"
-def relevance_score(para:Paragraph, facets:Optional[List[Tuple[str,int]]]) -> float:
+def relevance_score(para:Paragraph, facets:Optional[List[Tuple[str,int]]], max_possible_relevance:int) -> float:
     if not facets:
         return 0.0
     else:
-        rel = np.max([rel for qid, rel in facets  if rel > 0])
-        return float(rel)
+        relevances = [rel for qid, rel in facets  if rel > 0]
+        rel = 0 if not relevances else np.max(relevances)
+        return float(rel) / float(max_possible_relevance)
 
 
 
@@ -82,7 +93,8 @@ class PageRelevanceCache():
 
     """
 
-    def __init__(self, page:Page)->None:
+    def __init__(self, page:Page, max_possible_relevance:int)->None:
+        self.max_possible_relevance = max_possible_relevance
         self.page=page
         self.paragraph_facets = dict() # type: Optional[Dict[str,List[Tuple[str,int]]]]
         self.paragraph_positions = dict() # type: Optional[Dict[str,List[int]]]
@@ -91,7 +103,7 @@ class PageRelevanceCache():
     # ---------------------------
 
 
-    def add_paragraph_facet(self, qid:str, para_id: str, relevance:int )->None:
+    def add_paragraph_facet(self, qid:str, para_id: str, relevance:int)->None:
         assert qid.startswith(self.page.squid), ( "Query id %s does not belong to this page %s"  % (qid, self.page.squid))
         if self.paragraph_facets is None:
             self.paragraph_facets = dict() # type: Dict[str,List[Tuple[str,int]]]  # Dict(paraId -> [ (facetId, relevance)])
@@ -137,7 +149,7 @@ class PageRelevanceCache():
     def eval_relevance_score(self, page:Page) -> PageEval:
         relevance_scores = [] # type: List[float]
         for para in page.paragraphs:
-            score = relevance_score(para, self.paragraph_facets.get(para.para_id))
+            score = relevance_score(para, self.paragraph_facets.get(para.para_id), max_possible_relevance= self.max_possible_relevance)
             relevance_scores.append(score)
 
 
@@ -156,19 +168,26 @@ def eval_main() -> None:
     outlines_cbor_file = parsed["outline_cbor"]  # type: str
     run_dir = parsed["run_directory"]  # type: Optional[str]
     run_file = parsed["run_file"]  # type: Optional[str]
-    qrels = parsed["qrels"]  # type: str
+    qrels_file = parsed["qrels"]  # type: str
+    compat_file = parsed["compat"]  # type: str
+    max_possible_relevance = parsed["max_relevance"] # type:int
 
 
     eval_data = dict() # type: dict[str, List[PageEval]] # runName
     relevance_cache = dict() # type: dict[str, PageRelevanceCache]
 
+    compat_y2_to_y3 = {entry.y2SectionId: entry.sectionId for entry in load_compat_file(compat_file)}
+    # compat_y3_to_y2 = [(entry.sectionId, entry.y2SectionId) for entry in load_compat_file(compat_file)]
+
+    qrel_data = QrelFile(qrels_file, qid_translation_map= compat_y2_to_y3)
+
     with open(outlines_cbor_file, 'rb') as f:
         for page in OutlineReader.initialize_pages(f):
-            relevance_cache[page.squid] = PageRelevanceCache(page)
+            relevance_cache[page.squid] = PageRelevanceCache(page, max_possible_relevance=max_possible_relevance if max_possible_relevance else  qrel_data.max_possible_relevance())
 
     num_pages = len(relevance_cache)
 
-    qrel_data = QrelFile(qrels)
+
     qrels_by_squid = qrel_data.group_by_squid(relevance_cache.keys())
     for squid, qrel_lines in qrels_by_squid.items():
         pageCache = relevance_cache[squid]

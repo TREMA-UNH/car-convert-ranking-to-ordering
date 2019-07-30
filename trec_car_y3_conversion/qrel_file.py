@@ -30,8 +30,21 @@ class QrelFile(object):
     Responsible for reading a single qrelfile, line-by-line, and storing them in QrelLine data classes.
     """
 
-    def __init__(self,  qrel_file:str)-> None:
+    def __init__(self,  qrel_file:str, qid_translation_map:Optional[Dict[str,str]]=None)-> None:
+        self.qid_translation_map = qid_translation_map
         self.lines = self.load_qrel_file(qrel_file)
+
+    def max_possible_relevance(self) -> int:
+        return max((line.relevance for line in self.lines))
+
+    def translate_qid(self, qid):
+        if self.qid_translation_map:
+            if not qid in self.qid_translation_map:
+                # raise LookupError("%s not in compatability data." % qid)
+                return qid
+            return self.qid_translation_map[qid]
+        else:
+            return qid
 
 
     def load_qrel_file(self,qrel_file) -> List[QrelLine]:
@@ -39,7 +52,11 @@ class QrelFile(object):
         with open(qrel_file) as f:
             for line in f:
                 qrel_line = QrelLine.from_line(line)
-                qrellines.append(qrel_line)
+                if self.qid_translation_map:
+                    qrel_line_ = QrelLine(qid=self.translate_qid(qrel_line.qid), doc_id= qrel_line.doc_id, relevance=qrel_line.relevance)
+                    qrellines.append(qrel_line_)
+                else:
+                    qrellines.append(qrel_line)
 
         return qrellines
 
