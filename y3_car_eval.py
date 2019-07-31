@@ -212,8 +212,10 @@ def eval_main() -> None:
     qrels_file = parsed["qrels"]  # type: Optional[str]
     compat_file = parsed["compat"]  # type: Optional[str]
     max_possible_relevance = parsed["max_relevance"] # type:int
-
     gold_pages_file = parsed["gold_pages"]  # type: str
+    if not run_file and not run_dir:
+        print("Error: Either run_file or run_dir must be given.", file=sys.stderr)
+        sys.exit(1)
 
 
     eval_data = dict() # type: Dict[str, List[PageEval]] # runName
@@ -255,6 +257,22 @@ def eval_main() -> None:
 
 
     # todo rundir
+    if run_file :
+        score_run(eval_data, relevance_cache, run_file)
+    if run_dir :
+        for f in os.listdir(run_dir):
+            if f.endswith(".jsonl"):
+                score_run(eval_data, relevance_cache, run_dir+os.sep+f)
+
+    for name, evals in eval_data.items():
+        for metric, evals_ in safe_group_by([(eval.metric, eval) for eval in evals]).items():
+            scores = [eval.score for eval in evals_]
+            meanScore = np.mean(scores)   #type: float
+            stdErr = np.std(scores) / np.sqrt(num_pages) #type: float
+            print("%s \t %s \t %f +/- %f"% (name, metric, meanScore, stdErr) )
+
+
+def score_run(eval_data:Dict[str, List[PageEval]] , relevance_cache: Dict[str, PageRelevanceCache] , run_file:str)->None:
     with maybe_compressed_open(run_file) as f:
         for line in f:
             try:
@@ -266,13 +284,6 @@ def eval_main() -> None:
                 eval_data[page.run_id].extend(data)
             except Exception as x:
                 raise x
-
-    for name, evals in eval_data.items():
-        for metric, evals_ in safe_group_by([(eval.metric, eval) for eval in evals]).items():
-            scores = [eval.score for eval in evals_]
-            meanScore = np.mean(scores)   #type: float
-            stdErr = np.std(scores) / np.sqrt(num_pages) #type: float
-            print("%s \t %s \t %f +/- %f"% (name, metric, meanScore, stdErr) )
 
 
 if __name__ == '__main__':
