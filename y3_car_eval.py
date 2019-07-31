@@ -209,7 +209,7 @@ def eval_main() -> None:
     run_dir = parsed["run_directory"]  # type: Optional[str]
     run_file = parsed["run_file"]  # type: Optional[str]
     qrels_file = parsed["qrels"]  # type: str
-    compat_file = parsed["compat"]  # type: str
+    compat_file = parsed["compat"]  # type: Optional[str]
     max_possible_relevance = parsed["max_relevance"] # type:int
 
     gold_pages_file = parsed["gold_pages"]  # type: str
@@ -218,7 +218,7 @@ def eval_main() -> None:
     eval_data = dict() # type: Dict[str, List[PageEval]] # runName
     relevance_cache = dict() # type: Dict[str, PageRelevanceCache]
 
-    compat_y2_to_y3 = {entry.y2SectionId: entry.sectionId for entry in load_compat_file(compat_file)}
+    compat_y2_to_y3 = {entry.y2SectionId: entry.sectionId for entry in load_compat_file(compat_file)}  if compat_file else None
     # compat_y3_to_y2 = [(entry.sectionId, entry.y2SectionId) for entry in load_compat_file(compat_file)]
 
     qrel_data = QrelFile(qrels_file, qid_translation_map= compat_y2_to_y3)
