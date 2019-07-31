@@ -2,6 +2,7 @@
 import itertools
 import os
 import argparse
+import sys
 
 from typing import List, Iterator, Optional, Any, Tuple, Iterable
 
@@ -96,6 +97,7 @@ def run_main() -> None:
         out_name = ouput_dir+"/" + run_id + ".jsonl"  + ('.'+compression if compression else '')
         with maybe_compressed_open(out_name, "wt") as f:
             f.write(submission_to_json(pages))
+            print("Created file "+out_name,file=sys.stderr)
 
 
 def load_runs(run_dir:Optional[str], run_file:Optional[str], run_name:Optional[str], top_k:int)-> List[RunFile]:
