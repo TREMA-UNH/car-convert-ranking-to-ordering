@@ -264,12 +264,20 @@ def eval_main() -> None:
             if f.endswith(".jsonl"):
                 score_run(eval_data, relevance_cache, run_dir+os.sep+f)
 
-    for name, evals in eval_data.items():
-        for metric, evals_ in safe_group_by([(eval.metric, eval) for eval in evals]).items():
-            scores = [eval.score for eval in evals_]
-            meanScore = np.mean(scores)   #type: float
-            stdErr = np.std(scores) / np.sqrt(num_pages) #type: float
-            print("%s \t %s \t %f +/- %f"% (name, metric, meanScore, stdErr) )
+    # for name, evals in eval_data.items():
+    #     for metric, evals_ in safe_group_by([(eval.metric, eval) for eval in evals]).items():
+    #         print_eval_line(evals_, metric, name, num_pages)
+
+    all_eval_lines = [elem for list in eval_data.values() for elem in list]
+    for metric, evals_ in safe_group_by([(eval.metric, eval) for eval in all_eval_lines]).items():
+        for name, evals in safe_group_by([(eval.run_id, eval) for eval in evals_]).items():
+            print_eval_line(evals, metric, name, num_pages)
+
+def print_eval_line(evals, metric, name, num_pages):
+    scores = [eval.score for eval in evals]
+    meanScore = np.mean(scores)  # type: float
+    stdErr = np.std(scores) / np.sqrt(num_pages)  # type: float
+    print("%s \t %s \t %f +/- %f" % (name, metric, meanScore, stdErr))
 
 
 def score_run(eval_data:Dict[str, List[PageEval]] , relevance_cache: Dict[str, PageRelevanceCache] , run_file:str)->None:
