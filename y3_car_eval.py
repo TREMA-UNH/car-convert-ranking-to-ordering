@@ -3,6 +3,7 @@ import itertools
 import os
 import argparse
 import json
+import sys
 
 from typing import List, Iterator, Optional, Any, Tuple, Iterable, Dict
 
@@ -208,7 +209,7 @@ def eval_main() -> None:
     outlines_cbor_file = parsed["outline_cbor"]  # type: str
     run_dir = parsed["run_directory"]  # type: Optional[str]
     run_file = parsed["run_file"]  # type: Optional[str]
-    qrels_file = parsed["qrels"]  # type: str
+    qrels_file = parsed["qrels"]  # type: Optional[str]
     compat_file = parsed["compat"]  # type: Optional[str]
     max_possible_relevance = parsed["max_relevance"] # type:int
 
@@ -221,25 +222,36 @@ def eval_main() -> None:
     compat_y2_to_y3 = {entry.y2SectionId: entry.sectionId for entry in load_compat_file(compat_file)}  if compat_file else None
     # compat_y3_to_y2 = [(entry.sectionId, entry.y2SectionId) for entry in load_compat_file(compat_file)]
 
-    qrel_data = QrelFile(qrels_file, qid_translation_map= compat_y2_to_y3)
+
+    if qrels_file:
+        qrel_data = QrelFile(qrels_file, qid_translation_map= compat_y2_to_y3)
+        qrel_max_possible_relevance = qrel_data.max_possible_relevance()
+    else:
+        qrel_data = None
+        qrel_max_possible_relevance = 1
 
     with open(outlines_cbor_file, 'rb') as f:
         for page in OutlineReader.initialize_pages(f):
-            relevance_cache[page.squid] = PageRelevanceCache(page, max_possible_relevance=max_possible_relevance if max_possible_relevance else  qrel_data.max_possible_relevance())
+            relevance_cache[page.squid] = PageRelevanceCache(page, max_possible_relevance=max_possible_relevance if max_possible_relevance else  qrel_max_possible_relevance)
 
     num_pages = len(relevance_cache)
 
+    if qrels_file:
+        qrels_by_squid = qrel_data.group_by_squid(relevance_cache.keys())
+        for squid, qrel_lines in qrels_by_squid.items():
+            pageCache = relevance_cache[squid]
+            for qline in qrel_lines:
+                pageCache.add_paragraph_facet(qid = qline.qid, para_id= qline.doc_id, relevance = qline.relevance)
+    else:
+        print("No qrels file given, won't produce relevance and facet scores.", file=sys.stderr)
 
-    qrels_by_squid = qrel_data.group_by_squid(relevance_cache.keys())
-    for squid, qrel_lines in qrels_by_squid.items():
-        pageCache = relevance_cache[squid]
-        for qline in qrel_lines:
-            pageCache.add_paragraph_facet(qid = qline.qid, para_id= qline.doc_id, relevance = qline.relevance)
-
-    with open(gold_pages_file, 'rb') as gold_pages_handle:
-        for goldpage in iter_pages(gold_pages_handle):
-            gold_paragraph_sequence = flat_paragraphs(goldpage)
-            relevance_cache[goldpage.page_id].set_paragraph_position_list( zip(gold_paragraph_sequence, range(1, len(gold_paragraph_sequence))))
+    if gold_pages_file:
+        with open(gold_pages_file, 'rb') as gold_pages_handle:
+            for goldpage in iter_pages(gold_pages_handle):
+                gold_paragraph_sequence = flat_paragraphs(goldpage)
+                relevance_cache[goldpage.page_id].set_paragraph_position_list( zip(gold_paragraph_sequence, range(1, len(gold_paragraph_sequence))))
+    else:
+        print("No gold-pages file given, won't produce transition scores.", file=sys.stderr)
 
 
     # todo rundir
