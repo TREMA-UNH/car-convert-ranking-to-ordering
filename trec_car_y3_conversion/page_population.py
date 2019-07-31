@@ -105,7 +105,34 @@ class PageFacetCache():
 
 
 
-class RunManager(object):
+class ParagraphFiller(object):
+    def __init__(self)->None:
+        self.paragraphs_to_retrieve = {} # type: Dict[str, List[Paragraph]]
+
+
+    def register_paragraph(self, paragraph: Paragraph):
+        """
+        Remember where this paragraph is for later when we have to parse a paragraphCorpus.cbor file.
+        We will be adding the parsed text to this paragraph. Since there can be multiple instances of this paragraph
+        among queries and runs, they are all stored in a map of lists for later text retrieval.
+        """
+        key = paragraph.para_id
+        if key not in self.paragraphs_to_retrieve:
+            self.paragraphs_to_retrieve[key] = []
+        self.paragraphs_to_retrieve[key].append(paragraph)
+
+
+    def retrieve_text(self, paragraph_cbor_file):
+        """
+        Passes all registered paragraphs to the ParagraphTextCollector for text retrieval.
+        :param paragraph_cbor_file: Location to paragraphCorpus.cbor file
+        """
+        pcollector = ParagraphTextCollector(self.paragraphs_to_retrieve)
+        pcollector.update_all_paragraph_text(paragraph_cbor_file)
+
+
+
+class RunManager(ParagraphFiller):
     """
     Responsible for all the heavy lifting:
      - Parses a directory full of runfiles.
@@ -113,7 +140,7 @@ class RunManager(object):
     """
 
     def __init__(self, outline_cbor_file: str) -> None:
-        self.paragraphs_to_retrieve = {} # type: Dict[str, List[Paragraph]]
+        super(RunManager, self).__init__()
         self.pageCaches = {}  # type: Dict[RunPageKey, PageFacetCache]
         self.populated_pages = {}  # type: Dict[RunPageKey, Page]
         self.page_prototypes = {} # type: Dict[str, Page]
@@ -161,28 +188,6 @@ class RunManager(object):
 
 
 
-    def register_paragraph(self, paragraph: Paragraph):
-        """
-        Remember where this paragraph is for later when we have to parse a paragraphCorpus.cbor file.
-        We will be adding the parsed text to this paragraph. Since there can be multiple instances of this paragraph
-        among queries and runs, they are all stored in a map of lists for later text retrieval.
-        """
-        key = paragraph.para_id
-        if key not in self.paragraphs_to_retrieve:
-            self.paragraphs_to_retrieve[key] = []
-        self.paragraphs_to_retrieve[key].append(paragraph)
-
-
-    def retrieve_text(self, paragraph_cbor_file):
-        """
-        Passes all registered paragraphs to the ParagraphTextCollector for text retrieval.
-        :param paragraph_cbor_file: Location to paragraphCorpus.cbor file
-        """
-        pcollector = ParagraphTextCollector(self.paragraphs_to_retrieve)
-        pcollector.update_all_paragraph_text(paragraph_cbor_file)
-
-
-
 
 def populate_pages(outlines_cbor_file: str, runs: Iterable[RunFile], top_k: int, paragraph_cbor_file: Optional[str]) ->Iterable[Page]:
     run_manager = RunManager(outline_cbor_file=outlines_cbor_file)
@@ -202,4 +207,51 @@ def populate_pages(outlines_cbor_file: str, runs: Iterable[RunFile], top_k: int,
                 run_manager.register_paragraph(para)
         run_manager.retrieve_text(paragraph_cbor_file)
     return run_manager.populated_pages.values()
+
+
+def populate_pages_with_page_runs(outlines_cbor_file: str, runs: Iterable[RunFile], top_k: int, paragraph_cbor_file: Optional[str]) ->Iterable[Page]:
+    page_prototypes = {}
+    with open(outlines_cbor_file, 'rb') as f:
+        for page in OutlineReader.initialize_pages(f):
+            page_prototypes[page.squid] = page
+
+
+    all_pages = []
+
+    # After parsing run files, convert lines into paragraphs per facet (pageFacetCache)
+    for run in runs:
+        pages = {}  # type: Dict[str,Page]
+        for run_line in run.runlines:
+            if(run_line.qid in page_prototypes and run_line.rank <= top_k):   # Ignore other rankings
+                if run_line.qid not in pages:
+                        pages[run_line.qid] = page_prototypes[run_line.qid].copy_prototype(run_line.run_name)
+                page_prototype = pages[run_line.qid]
+
+                squid = page_prototype.squid
+                assert run_line.qid.startswith(squid), "fetched wrong page prototype"
+
+
+                # Add paragraph and register this for later (when we retrieve text / links)
+                paragraph = Paragraph(para_id=run_line.doc_id)  # create empty paragraph, contents will be loaded later.
+                if page_prototype.paragraphs is None:
+                    (page_prototype).paragraphs = []
+                page_prototype.paragraphs.append(paragraph)
+
+                # Also add which query this paragraph is with respect to
+                origin = ParagraphOrigin(
+                    para_id=run_line.doc_id,
+                    rank=run_line.rank,
+                    rank_score=run_line.score,
+                    section_path=run_line.qid
+                )
+                page_prototype.add_paragraph_origins(origin)
+        all_pages.extend(pages.values())
+
+    if (paragraph_cbor_file is not None):
+        run_manager = ParagraphFiller()
+        for page in all_pages:
+            for para in page.paragraphs:
+                run_manager.register_paragraph(para)
+        run_manager.retrieve_text(paragraph_cbor_file)
+    return all_pages
 

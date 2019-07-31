@@ -6,7 +6,7 @@ import sys
 
 from typing import List, Iterator, Optional, Any, Tuple, Iterable
 
-from trec_car_y3_conversion.page_population import populate_pages
+from trec_car_y3_conversion.page_population import populate_pages, populate_pages_with_page_runs
 from trec_car_y3_conversion.run_file import RunFile
 from trec_car_y3_conversion.utils import maybe_compressed_open
 from trec_car_y3_conversion.y3_data import Page, submission_to_json
@@ -61,6 +61,11 @@ each named according to the `run-name` given in the trec run file or overwritten
                         , metavar = "INT"
                         )
 
+    parser.add_argument("--is-page-level-run"
+                        , help = "Set of input runs are page-level runs (default: section-level)"
+                        , action = "store_true"
+                        )
+
     parsed = parser.parse_args()
     return parsed.__dict__
 
@@ -78,6 +83,7 @@ def run_main() -> None:
     run_name = parsed["run_name"]  # type: Optional[str]
     ouput_dir = parsed["output_directory"]  # type: str
     compression= parsed["compression"]  # type: Optional[str]
+    is_page_level_run= parsed["is_page_level_run"]  # type: bool
 
     top_k = int(parsed["k"]) # type: int
     paragraph_cbor_file = parsed["include_text_from_paragraph_cbor"]  # type: Optional[str]
@@ -87,7 +93,10 @@ def run_main() -> None:
 
     runs = load_runs(run_dir, run_file, run_name, top_k)
 
-    populated_pages = populate_pages(outlines_cbor_file, runs, top_k, paragraph_cbor_file)
+    if is_page_level_run:
+        populated_pages = populate_pages_with_page_runs(outlines_cbor_file, runs, top_k, paragraph_cbor_file)
+    else:
+        populated_pages = populate_pages(outlines_cbor_file, runs, top_k, paragraph_cbor_file)
 
     # Write populated, text filled pages to output directory in JSON format.
     if not os.path.exists(ouput_dir + "/"):
