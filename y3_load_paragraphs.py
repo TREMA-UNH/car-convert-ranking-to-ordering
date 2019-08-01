@@ -10,8 +10,7 @@ from typing import List, Iterator, Optional, Any, Tuple, Iterable, Dict
 from trec_car_y3_conversion.page_population import populate_pages, populate_pages_with_page_runs, ParagraphFiller
 from trec_car_y3_conversion.run_file import RunFile
 from trec_car_y3_conversion.utils import maybe_compressed_open
-from trec_car_y3_conversion.y3_data import Page, submission_to_json
-
+from trec_car_y3_conversion.y3_data import Page, submission_to_json, OutlineReader
 
 
 def get_parser():
@@ -41,6 +40,11 @@ def get_parser():
 
     parser.add_argument("--compression"
                         , help = "Compress written file with \'xz\', \'bz2\', or \'gz\'."
+                        )
+
+    parser.add_argument("--outline-cbor"
+                        , help = "Path to an outline.cbor file"
+                        , required= True
                         )
 
     parsed = parser.parse_args()
@@ -79,6 +83,12 @@ def run_main() -> None:
     ouput_dir = parsed["output_directory"]  # type: str
     paragraph_cbor_file = parsed["include_text_from_paragraph_cbor"]  # type: str
     compression= parsed["compression"]  # type: Optional[str]
+    outlines_cbor_file = parsed["outline_cbor"]  # type: str
+
+    page_prototypes = {} # type: Dict[str,Page]
+    with open(outlines_cbor_file, 'rb') as f:
+        for page in OutlineReader.initialize_pages(f):
+            page_prototypes[page.squid] = page
 
 
 
@@ -100,6 +110,8 @@ def run_main() -> None:
 
     load_paragraph_text(pages_per_run=pages_per_run, paragraph_cbor_file= paragraph_cbor_file)
 
+    load_page_facets_and_title(page_prototypes, pages_per_run)
+
     # Write populated, text filled pages to output directory in JSON format.
     if not os.path.exists(ouput_dir + "/"):
         os.mkdir(ouput_dir + "/")
@@ -109,6 +121,14 @@ def run_main() -> None:
         with maybe_compressed_open(out_name, "wt") as f:
             f.write(submission_to_json(pages))
             print("Created file "+out_name,file=sys.stderr)
+
+
+def load_page_facets_and_title(page_prototypes, pages_per_run):
+    for pages in pages_per_run.values():
+        for page in pages:
+            prototype = page_prototypes[page.squid]
+            page.query_facets = prototype.query_facets
+            page.title = prototype.title
 
 
 if __name__ == '__main__':
