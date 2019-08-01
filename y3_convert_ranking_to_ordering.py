@@ -66,6 +66,11 @@ each named according to the `run-name` given in the trec run file or overwritten
                         , action = "store_true"
                         )
 
+    parser.add_argument("--remove-duplicates"
+                        , help = "Remove duplicate passages (only retains first occurrence on page)"
+                        , action = "store_true"
+                        )
+
     parsed = parser.parse_args()
     return parsed.__dict__
 
@@ -84,6 +89,7 @@ def run_main() -> None:
     ouput_dir = parsed["output_directory"]  # type: str
     compression= parsed["compression"]  # type: Optional[str]
     is_page_level_run= parsed["is_page_level_run"]  # type: bool
+    remove_duplicates= parsed["remove_duplicates"]  # type: bool
 
     top_k = int(parsed["k"]) # type: int
     paragraph_cbor_file = parsed["include_text_from_paragraph_cbor"]  # type: Optional[str]
@@ -96,7 +102,7 @@ def run_main() -> None:
     if is_page_level_run:
         populated_pages = populate_pages_with_page_runs(outlines_cbor_file, runs, top_k, paragraph_cbor_file)
     else:
-        populated_pages = populate_pages(outlines_cbor_file, runs, top_k, paragraph_cbor_file)
+        populated_pages = populate_pages(outlines_cbor_file, runs, top_k, remove_duplicates, paragraph_cbor_file)
 
     # Write populated, text filled pages to output directory in JSON format.
     if not os.path.exists(ouput_dir + "/"):

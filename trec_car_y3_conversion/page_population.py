@@ -1,8 +1,7 @@
 #!/usr/bin/python3
 import sys
 
-from typing import List, Dict, Optional,  Iterable
-
+from typing import List, Dict, Optional, Iterable, Set, Union
 
 from trec_car_y3_conversion.run_file import RunFile, RunLine
 from trec_car_y3_conversion.y3_data import Page, Paragraph, ParagraphOrigin, RunPageKey, OutlineReader
@@ -39,7 +38,7 @@ class PageFacetCache():
         self.facet_paragraphs[qid].append(paragraph)
 
 
-    def populate_paragraphs(self, top_k:int)->Page:
+    def populate_paragraphs(self, top_k:int, remove_duplicates:bool)->Page:
         """
         In a round-robin fashion, select the top ceil(top_k/num_facets) paragraphs from each ranking, as set through :func:`add_facet_paragraph`.
 
@@ -71,34 +70,40 @@ class PageFacetCache():
             assert fk.startswith(self.page.squid), "Facet of wrong page"
 
 
-        facet_take_k = {facet_id:0 for facet_id in self.facet_paragraphs}
-        k = 0
-        did_change = True
         self.page.paragraphs = []
 
-        while k < top_k and did_change:
+
+        did_change = True
+
+        facet_para_list = {} # type: Dict[str, List[Paragraph]]
+        seen = set() if remove_duplicates else list() # type: Union[Set[str],List[str]]
+        while len(seen) < top_k and did_change:
             did_change = False
             for facet in self.page.query_facets:
                 facet_id = facet.facet_id
-                if k < top_k and facet_id in facet_take_k:
-                    if len(self.facet_paragraphs[facet_id]) > (facet_take_k[facet_id] + 1):
-                        facet_take_k[facet_id] += 1
-                        k += 1
-                        did_change = True
+                if len(seen) < top_k and facet_id in self.facet_paragraphs and self.facet_paragraphs[facet_id]:
+                    para = self.facet_paragraphs[facet_id].pop(0)
+                    if not (facet_id in facet_para_list):
+                        facet_para_list[facet_id] = []
+                    if remove_duplicates:
+                        if not (para.para_id in seen):
+                            facet_para_list[facet_id].append(para)
+                            seen.add(para.para_id)
+                    else:
+                        facet_para_list[facet_id].append(para)
+                        seen.append(para.para_id)
 
-        # assert sum (v for v in facet_take_k.values()) > 0, ("no paragraphs for select for page %s" % self.squid)
+                    did_change = True
 
         for facet in self.page.query_facets:
             facet_id = facet.facet_id
-            if facet_id in facet_take_k:
-                ps = self.facet_paragraphs[facet_id][0 : facet_take_k[facet_id]] # type: List[Paragraph]
-                self.page.paragraphs.extend(ps)
+            if facet_id in facet_para_list:
+                self.page.paragraphs.extend(facet_para_list[facet_id])
 
-
-        if k == 0:
+        if len(seen) == 0:
             print ("Warning: No paragraphs for population of page %s" % (self.page.squid), file=sys.stderr)
-        elif k < top_k:
-            print ("Warning: page %s could only be populated with %d paragraphs (instead of full budget %d)" % (self.page.squid, k, top_k), file=sys.stderr)
+        elif len(seen) < top_k:
+            print ("Warning: page %s could only be populated with %d paragraphs (instead of full budget %d)" % (self.page.squid, len(seen), top_k), file=sys.stderr)
         self.page.pids = {p.para_id for p in self.page.paragraphs}
 
         return self.page
@@ -189,14 +194,14 @@ class RunManager(ParagraphFiller):
 
 
 
-def populate_pages(outlines_cbor_file: str, runs: Iterable[RunFile], top_k: int, paragraph_cbor_file: Optional[str]) ->Iterable[Page]:
+def populate_pages(outlines_cbor_file: str, runs: Iterable[RunFile], top_k: int, remove_duplicates: bool, paragraph_cbor_file: Optional[str]) ->Iterable[Page]:
     run_manager = RunManager(outline_cbor_file=outlines_cbor_file)
     # After parsing run files, convert lines into paragraphs per facet (pageFacetCache)
     for run in runs:
         for run_line in run.runlines:
             run_manager.convert_run_line(run_line)
     # use pageFacetCache to populate the paragraphs field of the underlying page
-    run_manager.populated_pages = {key: pageCache.populate_paragraphs(top_k)
+    run_manager.populated_pages = {key: pageCache.populate_paragraphs(top_k, remove_duplicates)
                                    for key, pageCache in run_manager.pageCaches.items()}
 
     # if  paragraph text is requested, register all paragraph_ids, then retrieve text form paragraph-cbor file.
