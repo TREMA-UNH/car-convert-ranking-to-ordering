@@ -116,7 +116,8 @@ def run_main() -> None:
     if not os.path.exists(ouput_dir + "/"):
         os.mkdir(ouput_dir + "/")
 
-    for run_id, pages in pages_per_run.items():
+    for xx, pages in pages_per_run.items():
+        run_id = pages[0].run_id
         out_name = ouput_dir+"/" + run_id + ".jsonl"  + ('.'+compression if compression else '')
         with maybe_compressed_open(out_name, "wt") as f:
             f.write(submission_to_json(pages))
