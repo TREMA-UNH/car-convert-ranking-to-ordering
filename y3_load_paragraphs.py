@@ -86,8 +86,12 @@ def run_main() -> None:
 
     if json_dir:
         for json_loc in os.listdir(json_dir):
-            pages = load_pages(json_dir+os.sep+json_loc)
-            pages_per_run[os.path.basename(json_loc)]=pages
+            if json_loc.endswith(".jsonl") or ".jsonl." in json_loc:
+                try:
+                    pages = load_pages(json_dir+os.sep+json_loc)
+                    pages_per_run[os.path.basename(json_loc)]=pages
+                except Exception as x:
+                    print(x, file=sys.stderr)
 
     if json_file:
         pages = load_pages(json_file)
