@@ -83,7 +83,7 @@ def fill_rank_origins(pages_per_run:Dict[str,List[Page]]) -> None:
             if any(orig.rank is None for orig in page.paragraph_origins):
                 for section_path, origins in safe_group_by([(orig.section_path, orig) for orig in page.paragraph_origins]).items():
                     origins1 = sorted(origins, key = lambda o: o.rank_score, reverse = True)
-                    for o, rank in zip(origins1, range(1,len(origins1))):
+                    for o, rank in zip(origins1, range(1,len(origins1)+1)):
                         o.rank = rank
 
 
