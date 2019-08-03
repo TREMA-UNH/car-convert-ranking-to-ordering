@@ -9,7 +9,7 @@ from typing import List, Iterator, Optional, Any, Tuple, Iterable, Dict
 
 from trec_car_y3_conversion.page_population import populate_pages, populate_pages_with_page_runs, ParagraphFiller
 from trec_car_y3_conversion.run_file import RunFile
-from trec_car_y3_conversion.utils import maybe_compressed_open
+from trec_car_y3_conversion.utils import maybe_compressed_open, safe_group_by
 from trec_car_y3_conversion.y3_data import Page, submission_to_json, OutlineReader
 
 
@@ -76,6 +76,17 @@ def load_pages(json_loc:str)->List[Page]:
                 raise x
         return pages
 
+
+def fill_rank_origins(pages_per_run:Dict[str,List[Page]]) -> None:
+    for pages in pages_per_run.values():
+        for page in pages:
+            if any(orig.rank is None for orig in page.paragraph_origins):
+                for section_path, origins in safe_group_by([(orig.section_path, orig) for orig in page.paragraph_origins]).items():
+                    origins1 = sorted(origins, key = lambda o: o.rank_score, reverse = True)
+                    for o, rank in zip(origins1, range(1,len(origins1))):
+                        o.rank = rank
+
+
 def run_main() -> None:
     parsed = get_parser()
     json_dir = parsed["run_directory"]  # type: Optional[str]
@@ -111,6 +122,8 @@ def run_main() -> None:
     load_paragraph_text(pages_per_run=pages_per_run, paragraph_cbor_file= paragraph_cbor_file)
 
     load_page_facets_and_title(page_prototypes, pages_per_run)
+
+    fill_rank_origins(pages_per_run)
 
     # Write populated, text filled pages to output directory in JSON format.
     if not os.path.exists(ouput_dir + "/"):
